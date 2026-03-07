@@ -13,6 +13,49 @@ create table if not exists public.users (
   created_at timestamptz not null default now()
 );
 
+alter table public.users
+  add column if not exists email citext,
+  add column if not exists password_hash text,
+  add column if not exists full_name text,
+  add column if not exists role text,
+  add column if not exists region text,
+  add column if not exists created_at timestamptz default now();
+
+alter table public.users
+  alter column email type citext using email::citext,
+  alter column email set not null,
+  alter column password_hash set not null,
+  alter column full_name set not null,
+  alter column role set not null,
+  alter column created_at set default now(),
+  alter column created_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'users_email_key'
+      and conrelid = 'public.users'::regclass
+  ) then
+    alter table public.users
+      add constraint users_email_key unique (email);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'users_role_check'
+      and conrelid = 'public.users'::regclass
+  ) then
+    alter table public.users
+      add constraint users_role_check check (role in ('USER', 'ADMIN'));
+  end if;
+end $$;
+
 create table if not exists public.verifications (
   id bigserial primary key,
   user_id bigint not null unique references public.users(id) on delete cascade,
@@ -25,6 +68,82 @@ create table if not exists public.verifications (
   submitted_at timestamptz not null default now(),
   reviewed_at timestamptz
 );
+
+alter table public.verifications
+  add column if not exists user_id bigint,
+  add column if not exists full_name text,
+  add column if not exists address text,
+  add column if not exists birthdate date,
+  add column if not exists photo_id_url text,
+  add column if not exists status text default 'PENDING',
+  add column if not exists reviewed_by_admin_id bigint,
+  add column if not exists submitted_at timestamptz default now(),
+  add column if not exists reviewed_at timestamptz;
+
+alter table public.verifications
+  alter column user_id set not null,
+  alter column full_name set not null,
+  alter column address set not null,
+  alter column birthdate set not null,
+  alter column photo_id_url set not null,
+  alter column status set default 'PENDING',
+  alter column status set not null,
+  alter column submitted_at set default now(),
+  alter column submitted_at set not null;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'verifications_user_id_key'
+      and conrelid = 'public.verifications'::regclass
+  ) then
+    alter table public.verifications
+      add constraint verifications_user_id_key unique (user_id);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'verifications_status_check'
+      and conrelid = 'public.verifications'::regclass
+  ) then
+    alter table public.verifications
+      add constraint verifications_status_check check (status in ('PENDING', 'APPROVED', 'REJECTED'));
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'verifications_user_id_fkey'
+      and conrelid = 'public.verifications'::regclass
+  ) then
+    alter table public.verifications
+      add constraint verifications_user_id_fkey
+      foreign key (user_id) references public.users(id) on delete cascade;
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'verifications_reviewed_by_admin_id_fkey'
+      and conrelid = 'public.verifications'::regclass
+  ) then
+    alter table public.verifications
+      add constraint verifications_reviewed_by_admin_id_fkey
+      foreign key (reviewed_by_admin_id) references public.users(id);
+  end if;
+end $$;
 
 create index if not exists verifications_status_idx
   on public.verifications (status);
