@@ -60,3 +60,33 @@ This is the React frontend for the NewsHub project. It provides user authenticat
 - `src/` - Main source code
 - `public/` - Static assets
 - `.env` - Environment variables (not committed)
+
+## Database (ERD-aligned)
+
+- ERD SQL migration file: [database/migrations/001_erd_users_verifications.sql](database/migrations/001_erd_users_verifications.sql)
+- Apply it in Supabase:
+	1. Open Supabase Dashboard → SQL Editor.
+	2. Paste the contents of `database/migrations/001_erd_users_verifications.sql`.
+	3. Run the script once to create `users` and `verifications` with constraints.
+
+This migration enforces:
+- Unique email in `users` (case-insensitive)
+- One verification per user (`verifications.user_id` is unique)
+- `status` enum-like constraint (`PENDING | APPROVED | REJECTED`)
+- Admin reviewer foreign key (`reviewed_by_admin_id` → `users.id`)
+
+It also adds Supabase integration behavior:
+- New `auth.users` signups are mirrored into `public.users` via DB trigger.
+- Email/password/name updates in `auth.users` are synced to `public.users`.
+- A secure RPC `public.submit_verification(...)` is added for authenticated users.
+
+Example RPC call from frontend after login:
+
+```js
+const { data, error } = await supabase.rpc('submit_verification', {
+	p_full_name: fullName,
+	p_address: address,
+	p_birthdate: birthdate,
+	p_photo_id_url: photoIdUrl,
+});
+```
