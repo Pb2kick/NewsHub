@@ -1,11 +1,11 @@
 
 import './App.css';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './Login';
-import Register from './Register';
-import Home from './Home';
-import EmailConfirmed from './EmailConfirmed';
-import Profile from './Profile';
+import Login from './screens/Login';
+import Register from './screens/Register';
+import Home from './screens/Home';
+import EmailConfirmed from './screens/EmailConfirmed';
+import Profile from './screens/Profile';
 import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 

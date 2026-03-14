@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Bell, Calendar, ChevronDown, Clock, MapPin, Search, TrendingUp, User } from 'lucide-react';
-import { NEWS_ARTICLES, ELECTIONS } from './mockData';
-import { supabase } from './supabaseClient';
+import { NEWS_ARTICLES, ELECTIONS } from '../mockData';
+import { supabase } from '../supabaseClient';
 
 export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState('National');
@@ -47,14 +47,19 @@ export default function Home() {
         return;
       }
 
+      const firstName = (user.user_metadata?.first_name || '').trim();
+      const lastName = (user.user_metadata?.last_name || '').trim();
       const fullName = (user.user_metadata?.full_name || '').trim();
-      const initials = fullName
-        ? fullName
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((part) => part[0]?.toUpperCase() || '')
-            .join('')
-        : 'NH';
+
+      const initials = firstName || lastName
+        ? `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase()
+        : fullName
+          ? fullName
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase() || '')
+              .join('')
+          : 'NH';
 
       setProfileInitials(initials || 'NH');
       setProfilePhotoUrl(user.user_metadata?.profile_photo_url || '');

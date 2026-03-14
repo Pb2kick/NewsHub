@@ -15,7 +15,7 @@ import {
   Shield,
   User,
 } from 'lucide-react';
-import { supabase } from './supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const PROFILE_PHOTO_BUCKET = 'profile-photos';
 
@@ -46,9 +46,12 @@ export default function Profile() {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
-  const [editableFullName, setEditableFullName] = useState('');
+  const [editableFirstName, setEditableFirstName] = useState('');
+  const [editableLastName, setEditableLastName] = useState('');
   const [userData, setUserData] = useState({
     id: '',
+    firstName: '',
+    lastName: '',
     fullName: 'NewsHub User',
     email: '',
     role: 'voter',
@@ -78,7 +81,7 @@ export default function Profile() {
       let tableProfilePhotoUrl = '';
       const { data: tableUser } = await supabase
         .from('users')
-        .select('profile_photo_url, full_name')
+        .select('profile_photo_url, first_name, last_name, full_name')
         .eq('email', user.email)
         .maybeSingle();
 
@@ -87,20 +90,30 @@ export default function Profile() {
       }
 
       const metadataPhotoUrl = user.user_metadata?.profile_photo_url || '';
+      const metadataFirstName = (user.user_metadata?.first_name || '').trim();
+      const metadataLastName = (user.user_metadata?.last_name || '').trim();
       const metadataFullName = (user.user_metadata?.full_name || '').trim();
+      const tableFirstName = (tableUser?.first_name || '').trim();
+      const tableLastName = (tableUser?.last_name || '').trim();
       const tableFullName = (tableUser?.full_name || '').trim();
       const finalPhotoUrl = tableProfilePhotoUrl || metadataPhotoUrl;
-      const finalFullName = tableFullName || metadataFullName || 'NewsHub User';
+      const finalFirstName = tableFirstName || metadataFirstName || '';
+      const finalLastName = tableLastName || metadataLastName || '';
+      const combinedName = `${finalFirstName} ${finalLastName}`.trim();
+      const finalFullName = combinedName || tableFullName || metadataFullName || 'NewsHub User';
 
       setUserData({
         id: user.id,
+        firstName: finalFirstName,
+        lastName: finalLastName,
         fullName: finalFullName,
         email: user.email || '',
         role: user.user_metadata?.role || 'voter',
         verified: Boolean(user.email_confirmed_at),
         createdAt: user.created_at || '',
       });
-      setEditableFullName(finalFullName);
+      setEditableFirstName(finalFirstName);
+      setEditableLastName(finalLastName);
       setProfilePhotoUrl(finalPhotoUrl);
       setIsLoading(false);
     };
@@ -201,7 +214,7 @@ export default function Profile() {
       }
 
       setProfilePhotoUrl(uploadedPhotoUrl);
-      setSuccessMessage('Profile photo uploaded and saved to Supabase successfully.');
+      setSuccessMessage('Profile photo updated successfully.');
     } catch (error) {
       setErrorMessage(error.message || 'Failed to upload profile photo.');
     } finally {
@@ -212,29 +225,44 @@ export default function Profile() {
     }
   };
 
-  const onFullNameSubmit = async (event) => {
+  const onNameSubmit = async (event) => {
     event.preventDefault();
     setErrorMessage('');
     setSuccessMessage('');
 
-    const normalizedFullName = editableFullName.trim().replace(/\s+/g, ' ');
+    const normalizedFirstName = editableFirstName.trim().replace(/\s+/g, ' ');
+    const normalizedLastName = editableLastName.trim().replace(/\s+/g, ' ');
+    const normalizedFullName = `${normalizedFirstName} ${normalizedLastName}`.trim();
 
-    if (normalizedFullName.length < 2) {
-      setErrorMessage('Full name must be at least 2 characters.');
+    if (normalizedFirstName.length < 2) {
+      setErrorMessage('First name must be at least 2 characters.');
+      return;
+    }
+
+    if (normalizedLastName.length < 2) {
+      setErrorMessage('Last name must be at least 2 characters.');
       return;
     }
 
     if (normalizedFullName.length > 100) {
-      setErrorMessage('Full name must be at most 100 characters.');
+      setErrorMessage('Name must be at most 100 characters.');
       return;
     }
 
-    if (!/^[A-Za-z\s]+$/.test(normalizedFullName)) {
-      setErrorMessage('Full name can only contain letters and spaces.');
+    if (!/^[A-Za-z\s]+$/.test(normalizedFirstName)) {
+      setErrorMessage('First name can only contain letters and spaces.');
       return;
     }
 
-    if (normalizedFullName === userData.fullName) {
+    if (!/^[A-Za-z\s]+$/.test(normalizedLastName)) {
+      setErrorMessage('Last name can only contain letters and spaces.');
+      return;
+    }
+
+    if (
+      normalizedFirstName === userData.firstName &&
+      normalizedLastName === userData.lastName
+    ) {
       setSuccessMessage('No changes to save.');
       return;
     }
@@ -244,6 +272,8 @@ export default function Profile() {
     try {
       const { error: metadataError } = await supabase.auth.updateUser({
         data: {
+          first_name: normalizedFirstName,
+          last_name: normalizedLastName,
           full_name: normalizedFullName,
         },
       });
@@ -254,7 +284,11 @@ export default function Profile() {
 
       const { error: dbUpdateError } = await supabase
         .from('users')
-        .update({ full_name: normalizedFullName })
+        .update({
+          first_name: normalizedFirstName,
+          last_name: normalizedLastName,
+          full_name: normalizedFullName,
+        })
         .eq('email', userData.email);
 
       if (dbUpdateError) {
@@ -265,13 +299,16 @@ export default function Profile() {
 
       setUserData((previous) => ({
         ...previous,
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
         fullName: normalizedFullName,
       }));
-      setEditableFullName(normalizedFullName);
+      setEditableFirstName(normalizedFirstName);
+      setEditableLastName(normalizedLastName);
       setIsEditingProfile(false);
-      setSuccessMessage('Full name updated successfully.');
+      setSuccessMessage('Name updated successfully.');
     } catch (error) {
-      setErrorMessage(error.message || 'Failed to update full name.');
+      setErrorMessage(error.message || 'Failed to update name.');
     } finally {
       setIsUpdatingProfile(false);
     }
@@ -280,12 +317,14 @@ export default function Profile() {
   const handleStartEditProfile = () => {
     setErrorMessage('');
     setSuccessMessage('');
-    setEditableFullName(userData.fullName);
+    setEditableFirstName(userData.firstName);
+    setEditableLastName(userData.lastName);
     setIsEditingProfile(true);
   };
 
   const handleCancelEditProfile = () => {
-    setEditableFullName(userData.fullName);
+    setEditableFirstName(userData.firstName);
+    setEditableLastName(userData.lastName);
     setIsEditingProfile(false);
   };
 
@@ -314,7 +353,7 @@ export default function Profile() {
         throw new Error(error.message || 'Failed to update password.');
       }
 
-      setSuccessMessage('Password changed successfully and saved in Supabase Auth.');
+      setSuccessMessage('Password changed successfully.');
       reset();
     } catch (error) {
       setErrorMessage(error.message || 'Failed to update password.');
@@ -330,6 +369,8 @@ export default function Profile() {
       </div>
     );
   }
+
+  const headerDisplayName = `${userData.firstName} ${userData.lastName}`.trim() || userData.fullName;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -398,6 +439,7 @@ export default function Profile() {
             </div>
 
             <div className="flex-1 text-center sm:text-left">
+              <p className="text-2xl font-semibold text-slate-900 mb-4">{headerDisplayName}</p>
               <p className="text-sm text-slate-500 mb-4">
                 Upload a profile photo. Recommended size: 400x400px. Max file size: 5MB.
               </p>
@@ -447,20 +489,29 @@ export default function Profile() {
           </div>
 
           {isEditingProfile && (
-            <form onSubmit={onFullNameSubmit} className="mb-6 p-4 rounded-lg border border-slate-200 bg-slate-50">
-              <label htmlFor="editableFullName" className="block text-sm font-medium text-slate-900 mb-2">
-                Edit Full Name
-              </label>
-              <div className="flex flex-col sm:flex-row gap-3">
+            <form onSubmit={onNameSubmit} className="mb-6 p-4 rounded-lg border border-slate-200 bg-slate-50">
+              <p className="block text-sm font-medium text-slate-900 mb-2">Edit Name</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                 <input
-                  id="editableFullName"
+                  id="editableFirstName"
                   type="text"
-                  value={editableFullName}
-                  onChange={(event) => setEditableFullName(event.target.value)}
-                  maxLength={100}
+                  value={editableFirstName}
+                  onChange={(event) => setEditableFirstName(event.target.value)}
+                  maxLength={60}
                   className="block w-full rounded-xl py-3 px-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-300 sm:text-sm bg-white"
-                  placeholder="Enter your full name"
+                  placeholder="First name"
                 />
+                <input
+                  id="editableLastName"
+                  type="text"
+                  value={editableLastName}
+                  onChange={(event) => setEditableLastName(event.target.value)}
+                  maxLength={60}
+                  className="block w-full rounded-xl py-3 px-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-blue-300 sm:text-sm bg-white"
+                  placeholder="Last name"
+                />
+              </div>
+              <div className="flex justify-end">
                 <button
                   type="submit"
                   disabled={isUpdatingProfile}
@@ -483,9 +534,25 @@ export default function Profile() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-4 rounded-lg bg-slate-50">
               <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
                 <User className="h-4 w-4" />
+                First Name
+              </div>
+              <div className="sm:col-span-2 text-sm font-semibold text-slate-900">{userData.firstName || '-'}</div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-4 rounded-lg bg-slate-50">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+                <User className="h-4 w-4" />
+                Last Name
+              </div>
+              <div className="sm:col-span-2 text-sm font-semibold text-slate-900">{userData.lastName || '-'}</div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-4 rounded-lg bg-slate-50">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+                <User className="h-4 w-4" />
                 Full Name
               </div>
-              <div className="sm:col-span-2 text-sm font-semibold text-slate-900">{userData.fullName}</div>
+              <div className="sm:col-span-2 text-sm font-semibold text-slate-900">{headerDisplayName || '-'}</div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-4 rounded-lg bg-slate-50">

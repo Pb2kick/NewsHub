@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Building2, Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { supabase } from './supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const loginSchema = z.object({
   email: z

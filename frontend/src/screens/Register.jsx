@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   ChevronLeft,
 } from 'lucide-react';
-import { supabase } from './supabaseClient';
+import { supabase } from '../supabaseClient';
 
 const registerSchema = z
   .object({
@@ -116,6 +116,9 @@ export default function Register() {
 
     const normalizedEmail = formData.email.trim().toLowerCase();
     const normalizedFullName = formData.fullName.trim().replace(/\s+/g, ' ');
+    const nameParts = normalizedFullName.split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ');
 
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
@@ -123,6 +126,8 @@ export default function Register() {
       options: {
         data: {
           full_name: normalizedFullName,
+          first_name: firstName,
+          last_name: lastName,
         },
       },
     });
