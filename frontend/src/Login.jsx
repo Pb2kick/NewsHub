@@ -105,6 +105,8 @@ export default function Login() {
       email: data.email.trim().toLowerCase(),
       password: data.password,
     });
+    console.log('signInData:', signInData);
+    console.log('error:', error);
 
     if (error) {
       const mapped = mapLoginError(error.message || '');
@@ -129,9 +131,10 @@ export default function Login() {
     }
 
     if (signInData?.session) {
+      console.log('Session exists, redirecting to /home');
       setFailedAttempts(0);
       setLockUntil(null);
-      navigate('/');
+      navigate('/home');
       return;
     }
 

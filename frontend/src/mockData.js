@@ -1,6 +1,7 @@
 export const NEWS_ARTICLES = [
   {
     id: 1,
+    location: 'National',
     category: 'Politics',
     title: 'National Election Commission Announces Updated 2026 Voting Timeline',
     excerpt: 'The commission released revised milestones for candidate filing, debates, and early voting periods across all regions.',
@@ -11,6 +12,7 @@ export const NEWS_ARTICLES = [
   },
   {
     id: 2,
+    location: 'Local',
     category: 'Economy',
     title: 'Government Expands SME Support Program for Local Communities',
     excerpt: 'A new package includes easier loan access and tax incentives for small businesses in underserved municipalities.',
@@ -21,6 +23,7 @@ export const NEWS_ARTICLES = [
   },
   {
     id: 3,
+    location: 'North Province',
     category: 'Public Service',
     title: 'Digital ID Rollout Reaches 85% of Eligible Citizens Nationwide',
     excerpt: 'Officials say the secure ID platform improved access to online public services and reduced processing delays.',
@@ -31,6 +34,7 @@ export const NEWS_ARTICLES = [
   },
   {
     id: 4,
+    location: 'Metro District',
     category: 'Technology',
     title: 'New Cybersecurity Framework Introduced for Election Infrastructure',
     excerpt: 'The framework defines stricter controls for voter data handling, monitoring, and incident response.',

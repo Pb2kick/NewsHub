@@ -150,7 +150,7 @@ export default function Register() {
       return;
     }
 
-    setInfoMessage('Registration submitted. Please verify your email before signing in.');
+    setInfoMessage('Registration submitted. Please check your email and confirm your account registration before signing in.');
     setIsSuccess(true);
     setIsLoading(false);
     setTimeout(() => {

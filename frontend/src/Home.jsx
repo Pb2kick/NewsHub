@@ -1,26 +1,191 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Clock, User, TrendingUp, Calendar } from 'lucide-react';
+import { ArrowRight, Bell, Calendar, ChevronDown, Clock, MapPin, Search, TrendingUp, User } from 'lucide-react';
 import { NEWS_ARTICLES, ELECTIONS } from './mockData';
+import { supabase } from './supabaseClient';
 
 export default function Home() {
-  const featuredArticle = NEWS_ARTICLES[0];
-  const otherArticles = NEWS_ARTICLES.slice(1);
+  const [selectedLocation, setSelectedLocation] = useState('National');
+  const [locationLabel, setLocationLabel] = useState('');
+  const [isDetecting, setIsDetecting] = useState(true);
+  const [locationError, setLocationError] = useState('');
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [profileMenuElement, setProfileMenuElement] = useState(null);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
+  const [profileInitials, setProfileInitials] = useState('NH');
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setIsDetecting(false);
+      setLocationError('Geolocation not supported. Using national news.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setSelectedLocation('Local');
+        setLocationLabel(`Lat ${latitude.toFixed(2)}, Lng ${longitude.toFixed(2)}`);
+        setLocationError('');
+        setIsDetecting(false);
+      },
+      () => {
+        setSelectedLocation('National');
+        setLocationError('Location access denied. Showing national news.');
+        setIsDetecting(false);
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
+  }, []);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+
+      if (!user) {
+        return;
+      }
+
+      const fullName = (user.user_metadata?.full_name || '').trim();
+      const initials = fullName
+        ? fullName
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase() || '')
+            .join('')
+        : 'NH';
+
+      setProfileInitials(initials || 'NH');
+      setProfilePhotoUrl(user.user_metadata?.profile_photo_url || '');
+    };
+
+    loadUser();
+  }, []);
+
+  useEffect(() => {
+    const onClickOutside = (event) => {
+      if (profileMenuElement && !profileMenuElement.contains(event.target)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+    };
+  }, [profileMenuElement]);
+
+  const locationOptions = ['Local', 'National', 'Metro District', 'North Province', 'Central Region', 'All'];
+
+  const filteredArticles = useMemo(() => {
+    if (selectedLocation === 'All') {
+      return NEWS_ARTICLES;
+    }
+    return NEWS_ARTICLES.filter((article) =>
+      article.location === selectedLocation || article.location === 'National'
+    );
+  }, [selectedLocation]);
+
+  const effectiveArticles = filteredArticles.length > 0 ? filteredArticles : NEWS_ARTICLES;
+  const featuredArticle = effectiveArticles[0];
+  const otherArticles = effectiveArticles.slice(1);
   const activeElections = ELECTIONS.slice(0, 2);
+  const topCategories = ['Top Stories', 'Politics', 'Economy', 'Local', 'International', 'Elections 2026'];
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/login';
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="text-xl font-extrabold text-slate-900 tracking-tight">NewsHub</Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-            <Link to="/" className="text-blue-600">Home</Link>
-            <Link to="/" className="hover:text-slate-900">News</Link>
-            <Link to="/" className="hover:text-slate-900">Elections</Link>
-            <Link to="/" className="hover:text-slate-900">About</Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link to="/login" className="px-3 py-1.5 text-sm font-semibold text-slate-700 hover:text-slate-900">Sign out</Link>
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="h-16 flex items-center justify-between gap-3 sm:gap-6">
+            <Link to="/home" className="flex items-center gap-2 shrink-0">
+              <span className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm">N</span>
+              <span className="text-xl font-extrabold text-slate-900 tracking-tight">NewsHub</span>
+            </Link>
+
+            <div className="hidden md:flex flex-1 max-w-xl relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search news, elections, candidates..."
+                className="w-full h-11 rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+              <div className="hidden lg:flex items-center gap-1.5 text-sm font-medium text-slate-600">
+                <MapPin className="w-4 h-4 text-slate-500" />
+                <span>{selectedLocation}</span>
+              </div>
+              <button type="button" className="w-9 h-9 rounded-full border border-slate-200 text-slate-600 grid place-items-center hover:bg-slate-100">
+                <Bell className="w-4 h-4" />
+              </button>
+              <div ref={setProfileMenuElement} className="relative border-l border-slate-200 pl-2 sm:pl-4">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
+                  className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-100"
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs grid place-items-center overflow-hidden">
+                    {profilePhotoUrl ? (
+                      <img src={profilePhotoUrl} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      profileInitials
+                    )}
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                </button>
+
+                {isProfileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-40 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-50">
+                    <Link
+                      to="/profile"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="block px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Profile
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full text-left px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="md:hidden pb-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search news..."
+                className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+
+          <div className="h-12 border-t border-slate-100 flex items-center overflow-x-auto no-scrollbar">
+            <nav className="flex items-center gap-6 text-sm font-semibold text-slate-500 whitespace-nowrap">
+              {topCategories.map((category, index) => (
+                <Link
+                  key={category}
+                  to="/home"
+                  className={`pb-3 border-b-2 transition-colors ${index === 0 ? 'text-blue-600 border-blue-600' : 'border-transparent hover:text-slate-900'}`}
+                >
+                  {category}
+                </Link>
+              ))}
+            </nav>
           </div>
         </div>
       </header>
@@ -66,15 +231,28 @@ export default function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-12">
           <div className="lg:col-span-8">
-            <div className="flex items-center justify-between mb-5 sm:mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 sm:mb-8">
               <h2 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
                 <span className="w-1.5 sm:w-2 h-6 sm:h-8 bg-blue-600 rounded-full block" />
                 Latest News
               </h2>
-              <div className="flex gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
-                <button className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap">All</button>
-                <button className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap">Politics</button>
-                <button className="px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap hidden min-[400px]:block">Economy</button>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="text-xs sm:text-sm text-slate-500">
+                  {isDetecting ? 'Detecting location...' : `Location: ${selectedLocation}`}
+                  {locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
+                </div>
+                {locationError && !isDetecting && (
+                  <span className="text-xs text-amber-600">{locationError}</span>
+                )}
+                <select
+                  value={selectedLocation}
+                  onChange={(event) => setSelectedLocation(event.target.value)}
+                  className="px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  {locationOptions.map((location) => (
+                    <option key={location} value={location}>{location}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
