@@ -6,6 +6,7 @@ import Register from './screens/Register';
 import Home from './screens/Home';
 import EmailConfirmed from './screens/EmailConfirmed';
 import Profile from './screens/Profile';
+import Article from './screens/Article';
 import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 
@@ -47,6 +48,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+          <Route path="/news/:id" element={<ProtectedRoute><Article /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/email-confirmed" element={<EmailConfirmed />} />
           <Route path="*" element={<Navigate to="/login" replace />} />

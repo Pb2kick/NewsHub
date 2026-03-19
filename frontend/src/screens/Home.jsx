@@ -3,12 +3,18 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Bell, Calendar, ChevronDown, Clock, MapPin, Search, TrendingUp, User } from 'lucide-react';
 import { NEWS_ARTICLES, ELECTIONS } from '../mockData';
 import { supabase } from '../supabaseClient';
+import { fetchNewsByLocation } from '../api/newsApi';
 
 export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState('National');
   const [locationLabel, setLocationLabel] = useState('');
   const [isDetecting, setIsDetecting] = useState(true);
   const [locationError, setLocationError] = useState('');
+  const [detectedLatitude, setDetectedLatitude] = useState(null);
+  const [detectedLongitude, setDetectedLongitude] = useState(null);
+  const [newsArticles, setNewsArticles] = useState(NEWS_ARTICLES);
+  const [isNewsLoading, setIsNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState('');
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [profileMenuElement, setProfileMenuElement] = useState(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
@@ -24,12 +30,16 @@ export default function Home() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
+        setDetectedLatitude(latitude);
+        setDetectedLongitude(longitude);
         setSelectedLocation('Local');
         setLocationLabel(`Lat ${latitude.toFixed(2)}, Lng ${longitude.toFixed(2)}`);
         setLocationError('');
         setIsDetecting(false);
       },
       () => {
+        setDetectedLatitude(null);
+        setDetectedLongitude(null);
         setSelectedLocation('National');
         setLocationError('Location access denied. Showing national news.');
         setIsDetecting(false);
@@ -37,6 +47,47 @@ export default function Home() {
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
     );
   }, []);
+
+  useEffect(() => {
+    const abortController = new AbortController();
+
+    async function loadLocationNews() {
+      setIsNewsLoading(true);
+
+      try {
+        const fetchedNews = await fetchNewsByLocation({
+          location: selectedLocation,
+          latitude: detectedLatitude,
+          longitude: detectedLongitude,
+          signal: abortController.signal,
+        });
+
+        if (!abortController.signal.aborted) {
+          setNewsArticles(fetchedNews.length > 0 ? fetchedNews : NEWS_ARTICLES);
+          setNewsError('');
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return;
+        }
+
+        if (!abortController.signal.aborted) {
+          setNewsArticles(NEWS_ARTICLES);
+          setNewsError('Unable to fetch location-based news. Showing fallback feed.');
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsNewsLoading(false);
+        }
+      }
+    }
+
+    loadLocationNews();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedLocation, detectedLatitude, detectedLongitude]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -82,17 +133,9 @@ export default function Home() {
   }, [profileMenuElement]);
 
   const locationOptions = ['Local', 'National', 'Metro District', 'North Province', 'Central Region', 'All'];
-
-  const filteredArticles = useMemo(() => {
-    if (selectedLocation === 'All') {
-      return NEWS_ARTICLES;
-    }
-    return NEWS_ARTICLES.filter((article) =>
-      article.location === selectedLocation || article.location === 'National'
-    );
-  }, [selectedLocation]);
-
-  const effectiveArticles = filteredArticles.length > 0 ? filteredArticles : NEWS_ARTICLES;
+  const effectiveArticles = useMemo(() => {
+    return newsArticles.length > 0 ? newsArticles : NEWS_ARTICLES;
+  }, [newsArticles]);
   const featuredArticle = effectiveArticles[0];
   const otherArticles = effectiveArticles.slice(1);
   const activeElections = ELECTIONS.slice(0, 2);
@@ -224,7 +267,8 @@ export default function Home() {
                   {featuredArticle.date}
                 </span>
                 <Link
-                  to="/"
+                  to={`/news/${featuredArticle.id}`}
+                  state={{ article: featuredArticle }}
                   className="hidden sm:flex ml-auto items-center gap-2 text-white hover:text-blue-400 transition-colors group-hover:translate-x-1 duration-300"
                 >
                   Read Full Story <ArrowRight className="w-4 h-4" />
@@ -243,11 +287,18 @@ export default function Home() {
               </h2>
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <div className="text-xs sm:text-sm text-slate-500">
-                  {isDetecting ? 'Detecting location...' : `Location: ${selectedLocation}`}
+                  {isDetecting
+                    ? 'Detecting location...'
+                    : isNewsLoading
+                      ? `Fetching ${selectedLocation} news...`
+                      : `Location: ${selectedLocation}`}
                   {locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
                 </div>
                 {locationError && !isDetecting && (
                   <span className="text-xs text-amber-600">{locationError}</span>
+                )}
+                {newsError && !isNewsLoading && (
+                  <span className="text-xs text-amber-600">{newsError}</span>
                 )}
                 <select
                   value={selectedLocation}
@@ -263,7 +314,7 @@ export default function Home() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
               {otherArticles.map((article) => (
-                <Link key={article.id} to="/" className="group flex flex-row sm:flex-col h-auto sm:h-full bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                <Link key={article.id} to={`/news/${article.id}`} state={{ article }} className="group flex flex-row sm:flex-col h-auto sm:h-full bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
                   <div className="relative w-28 sm:w-full h-auto sm:h-48 overflow-hidden shrink-0">
                     <img
                       src={article.image}
@@ -307,12 +358,12 @@ export default function Home() {
                   <TrendingUp className="w-5 h-5 text-blue-600" />
                   Active Elections
                 </h3>
-                <Link to="/" className="text-sm font-medium text-blue-600 hover:text-blue-700">View All</Link>
+                <Link to="/home" className="text-sm font-medium text-blue-600 hover:text-blue-700">View All</Link>
               </div>
 
               <div className="space-y-4">
                 {activeElections.map((election) => (
-                  <Link key={election.id} to="/" className="block group">
+                  <Link key={election.id} to="/home" className="block group">
                     <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 transition-all">
                       <div className="flex justify-between items-start mb-2">
                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">{election.status}</span>
@@ -345,7 +396,7 @@ export default function Home() {
                 {['#Election2026', '#ClimateAction', '#TechPrivacy', '#CityCouncil', '#Education', '#PublicTransit', '#LocalBusiness'].map((tag) => (
                   <Link
                     key={tag}
-                    to="/"
+                    to="/home"
                     className="px-3 py-1.5 bg-slate-50 hover:bg-blue-50 text-slate-600 hover:text-blue-600 text-sm font-medium rounded-lg transition-colors border border-slate-100 hover:border-blue-100"
                   >
                     {tag}
@@ -387,9 +438,9 @@ export default function Home() {
             <div>
               <h5 className="text-white text-sm font-semibold uppercase tracking-wide">Platform</h5>
               <ul className="mt-2 space-y-2 text-sm">
-                <li><Link to="/" className="hover:text-white">Latest News</Link></li>
-                <li><Link to="/" className="hover:text-white">Elections</Link></li>
-                <li><Link to="/" className="hover:text-white">Privacy</Link></li>
+                <li><Link to="/home" className="hover:text-white">Latest News</Link></li>
+                <li><Link to="/home" className="hover:text-white">Elections</Link></li>
+                <li><Link to="/home" className="hover:text-white">Privacy</Link></li>
               </ul>
             </div>
             <div>
