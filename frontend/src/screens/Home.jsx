@@ -1,9 +1,53 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Bell, Calendar, ChevronDown, Clock, MapPin, Search, TrendingUp, User } from 'lucide-react';
-import { NEWS_ARTICLES, ELECTIONS } from '../mockData';
+import { ELECTIONS } from '../mockData';
 import { supabase } from '../supabaseClient';
 import { fetchNewsByLocation } from '../api/newsApi';
+
+function fallbackLocationFromCoordinates(latitude, longitude) {
+  if (longitude < 121.0) {
+    return { area: 'North Province', country: 'Philippines' };
+  }
+
+  if (latitude < 14.4) {
+    return { area: 'Central Region', country: 'Philippines' };
+  }
+
+  return { area: 'Metro District', country: 'Philippines' };
+}
+
+async function resolveLocationLabel(latitude, longitude, signal) {
+  const fallback = fallbackLocationFromCoordinates(latitude, longitude);
+
+  try {
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      lat: String(latitude),
+      lon: String(longitude),
+      zoom: '10',
+      addressdetails: '1',
+    });
+
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+      signal,
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      return `${fallback.area}, ${fallback.country}`;
+    }
+
+    const payload = await response.json();
+    const address = payload?.address || {};
+    const area = address.city || address.town || address.state || address.region || fallback.area;
+    const country = address.country || fallback.country;
+
+    return `${area}, ${country}`;
+  } catch {
+    return `${fallback.area}, ${fallback.country}`;
+  }
+}
 
 export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState('National');
@@ -12,18 +56,23 @@ export default function Home() {
   const [locationError, setLocationError] = useState('');
   const [detectedLatitude, setDetectedLatitude] = useState(null);
   const [detectedLongitude, setDetectedLongitude] = useState(null);
-  const [newsArticles, setNewsArticles] = useState(NEWS_ARTICLES);
-  const [isNewsLoading, setIsNewsLoading] = useState(false);
+  const [newsArticles, setNewsArticles] = useState([]);
+  const [isNewsLoading, setIsNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState('');
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [profileMenuElement, setProfileMenuElement] = useState(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
   const [profileInitials, setProfileInitials] = useState('NH');
+  const approximateLocalLabel = 'Metro District, Philippines (Approx.)';
 
   useEffect(() => {
+    const abortController = new AbortController();
+
     if (!navigator.geolocation) {
       setIsDetecting(false);
-      setLocationError('Geolocation not supported. Using national news.');
+      setSelectedLocation('Local');
+      setLocationLabel(approximateLocalLabel);
+      setLocationError('Geolocation not supported. Showing approximate local news.');
       return;
     }
 
@@ -33,20 +82,37 @@ export default function Home() {
         setDetectedLatitude(latitude);
         setDetectedLongitude(longitude);
         setSelectedLocation('Local');
-        setLocationLabel(`Lat ${latitude.toFixed(2)}, Lng ${longitude.toFixed(2)}`);
+        setLocationLabel('Resolving area...');
         setLocationError('');
         setIsDetecting(false);
+
+        resolveLocationLabel(latitude, longitude, abortController.signal).then((label) => {
+          if (!abortController.signal.aborted) {
+            setLocationLabel(label);
+          }
+        });
       },
       () => {
         setDetectedLatitude(null);
         setDetectedLongitude(null);
-        setSelectedLocation('National');
-        setLocationError('Location access denied. Showing national news.');
+        setSelectedLocation('Local');
+        setLocationLabel(approximateLocalLabel);
+        setLocationError('Location access denied. Showing approximate local news.');
         setIsDetecting(false);
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
     );
+
+    return () => {
+      abortController.abort();
+    };
   }, []);
+
+  useEffect(() => {
+    if (selectedLocation !== 'Local') {
+      setLocationLabel('');
+    }
+  }, [selectedLocation]);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -63,8 +129,8 @@ export default function Home() {
         });
 
         if (!abortController.signal.aborted) {
-          setNewsArticles(fetchedNews.length > 0 ? fetchedNews : NEWS_ARTICLES);
-          setNewsError('');
+          setNewsArticles(fetchedNews);
+          setNewsError(fetchedNews.length === 0 ? 'No current-year news found for this location yet.' : '');
         }
       } catch (error) {
         if (error.name === 'AbortError') {
@@ -72,8 +138,8 @@ export default function Home() {
         }
 
         if (!abortController.signal.aborted) {
-          setNewsArticles(NEWS_ARTICLES);
-          setNewsError('Unable to fetch location-based news. Showing fallback feed.');
+          setNewsArticles([]);
+          setNewsError('Unable to fetch location-based news right now.');
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -132,18 +198,25 @@ export default function Home() {
     };
   }, [profileMenuElement]);
 
-  const locationOptions = ['Local', 'National', 'Metro District', 'North Province', 'Central Region', 'All'];
+  const locationOptions = ['Local', 'National', 'International'];
   const effectiveArticles = useMemo(() => {
-    return newsArticles.length > 0 ? newsArticles : NEWS_ARTICLES;
+    return newsArticles;
   }, [newsArticles]);
   const featuredArticle = effectiveArticles[0];
   const otherArticles = effectiveArticles.slice(1);
   const activeElections = ELECTIONS.slice(0, 2);
   const topCategories = ['Top Stories', 'Politics', 'Economy', 'Local', 'International', 'Elections 2026'];
+  const hasImage = (imageUrl) => typeof imageUrl === 'string' && imageUrl.trim().length > 0;
+  const showInitialNewsLoading = isNewsLoading && effectiveArticles.length === 0;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     window.location.href = '/login';
+  };
+
+  const handleLocationChange = (event) => {
+    const nextLocation = event.target.value;
+    setSelectedLocation(nextLocation);
   };
 
   return (
@@ -239,44 +312,60 @@ export default function Home() {
       </header>
 
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">
-        <section className="mb-6 sm:mb-12">
-          <div className="relative rounded-xl sm:rounded-2xl overflow-hidden shadow-lg group">
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10" />
-            <img
-              src={featuredArticle.image}
-              alt={featuredArticle.title}
-              className="w-full h-[280px] sm:h-[400px] lg:h-[500px] object-cover transition-transform duration-700 group-hover:scale-105"
-            />
-            <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-8 z-20">
-              <span className="inline-block px-2.5 py-0.5 sm:px-3 sm:py-1 bg-blue-600 text-white text-[11px] sm:text-xs font-semibold rounded-full mb-2 sm:mb-4">
-                {featuredArticle.category}
-              </span>
-              <h1 className="text-xl sm:text-3xl md:text-5xl font-bold text-white mb-2 sm:mb-4 leading-tight max-w-4xl">
-                {featuredArticle.title}
-              </h1>
-              <p className="text-slate-200 text-sm sm:text-lg mb-3 sm:mb-6 max-w-2xl line-clamp-2 hidden min-[360px]:block">
-                {featuredArticle.excerpt}
-              </p>
-              <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-slate-300 text-xs sm:text-sm font-medium">
-                <span className="flex items-center gap-1.5 sm:gap-2">
-                  <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  {featuredArticle.author}
+        {showInitialNewsLoading ? (
+          <section className="mb-6 sm:mb-12 animate-pulse">
+            <div className="rounded-xl sm:rounded-2xl overflow-hidden shadow-lg bg-slate-200 h-[280px] sm:h-[400px] lg:h-[500px]" />
+          </section>
+        ) : featuredArticle ? (
+          <section className="mb-6 sm:mb-12">
+            <div className="relative rounded-xl sm:rounded-2xl overflow-hidden shadow-lg group">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10" />
+              {hasImage(featuredArticle.image) ? (
+                <img
+                  src={featuredArticle.image}
+                  alt={featuredArticle.title}
+                  className="w-full h-[280px] sm:h-[400px] lg:h-[500px] object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+              ) : (
+                <div className="w-full h-[280px] sm:h-[400px] lg:h-[500px] bg-gradient-to-br from-slate-700 via-slate-600 to-slate-800" />
+              )}
+              <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-8 z-20">
+                <span className="inline-block px-2.5 py-0.5 sm:px-3 sm:py-1 bg-blue-600 text-white text-[11px] sm:text-xs font-semibold rounded-full mb-2 sm:mb-4">
+                  {featuredArticle.category}
                 </span>
-                <span className="flex items-center gap-1.5 sm:gap-2">
-                  <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  {featuredArticle.date}
-                </span>
-                <Link
-                  to={`/news/${featuredArticle.id}`}
-                  state={{ article: featuredArticle }}
-                  className="hidden sm:flex ml-auto items-center gap-2 text-white hover:text-blue-400 transition-colors group-hover:translate-x-1 duration-300"
-                >
-                  Read Full Story <ArrowRight className="w-4 h-4" />
-                </Link>
+                <h1 className="text-xl sm:text-3xl md:text-5xl font-bold text-white mb-2 sm:mb-4 leading-tight max-w-4xl">
+                  {featuredArticle.title}
+                </h1>
+                <p className="text-slate-200 text-sm sm:text-lg mb-3 sm:mb-6 max-w-2xl line-clamp-2 hidden min-[360px]:block">
+                  {featuredArticle.excerpt}
+                </p>
+                <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-slate-300 text-xs sm:text-sm font-medium">
+                  <span className="flex items-center gap-1.5 sm:gap-2">
+                    <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    {featuredArticle.author}
+                  </span>
+                  <span className="flex items-center gap-1.5 sm:gap-2">
+                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    {featuredArticle.date}
+                  </span>
+                  <Link
+                    to={`/news/${featuredArticle.id}`}
+                    state={{ article: featuredArticle }}
+                    className="hidden sm:flex ml-auto items-center gap-2 text-white hover:text-blue-400 transition-colors group-hover:translate-x-1 duration-300"
+                  >
+                    Read Full Story <ArrowRight className="w-4 h-4" />
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : (
+          <section className="mb-6 sm:mb-12">
+            <div className="rounded-xl sm:rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">
+              No current-year headlines are available for this location yet.
+            </div>
+          </section>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-12">
           <div className="lg:col-span-8">
@@ -302,7 +391,7 @@ export default function Home() {
                 )}
                 <select
                   value={selectedLocation}
-                  onChange={(event) => setSelectedLocation(event.target.value)}
+                  onChange={handleLocationChange}
                   className="px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
                 >
                   {locationOptions.map((location) => (
@@ -313,41 +402,58 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
-              {otherArticles.map((article) => (
-                <Link key={article.id} to={`/news/${article.id}`} state={{ article }} className="group flex flex-row sm:flex-col h-auto sm:h-full bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-                  <div className="relative w-28 sm:w-full h-auto sm:h-48 overflow-hidden shrink-0">
-                    <img
-                      src={article.image}
-                      alt={article.title}
-                      className="w-full h-full min-h-[100px] object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                    <div className="absolute top-2 left-2 sm:top-4 sm:left-4">
-                      <span className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-white/90 backdrop-blur-sm text-slate-900 text-[10px] sm:text-xs font-semibold rounded-md shadow-sm">
-                        {article.category}
-                      </span>
+              {showInitialNewsLoading ? (
+                Array.from({ length: 4 }).map((_, index) => (
+                  <div key={`loading-${index}`} className="h-56 sm:h-80 rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+                    <div className="h-24 sm:h-48 bg-slate-200" />
+                    <div className="p-4 space-y-3">
+                      <div className="h-3 bg-slate-200 rounded w-1/2" />
+                      <div className="h-4 bg-slate-200 rounded w-4/5" />
+                      <div className="h-4 bg-slate-200 rounded w-3/5" />
                     </div>
                   </div>
-                  <div className="p-3 sm:p-6 flex flex-col flex-1">
-                    <div className="flex items-center gap-2 text-[10px] sm:text-xs text-slate-500 mb-1.5 sm:mb-3">
-                      <span className="font-medium text-blue-600">{article.author}</span>
-                      <span>•</span>
-                      <span>{article.date}</span>
+                ))
+              ) : (
+                otherArticles.map((article) => (
+                  <Link key={article.id} to={`/news/${article.id}`} state={{ article }} className="group flex flex-row sm:flex-col h-auto sm:h-full bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                    <div className="relative w-28 sm:w-full h-auto sm:h-48 overflow-hidden shrink-0">
+                      {hasImage(article.image) ? (
+                        <img
+                          src={article.image}
+                          alt={article.title}
+                          className="w-full h-full min-h-[100px] object-cover transition-transform duration-500 group-hover:scale-110"
+                        />
+                      ) : (
+                        <div className="w-full h-full min-h-[100px] bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300" />
+                      )}
+                      <div className="absolute top-2 left-2 sm:top-4 sm:left-4">
+                        <span className="px-1.5 py-0.5 sm:px-2 sm:py-1 bg-white/90 backdrop-blur-sm text-slate-900 text-[10px] sm:text-xs font-semibold rounded-md shadow-sm">
+                          {article.category}
+                        </span>
+                      </div>
                     </div>
-                    <h3 className="text-sm sm:text-xl font-bold text-slate-900 mb-1 sm:mb-3 group-hover:text-blue-600 transition-colors line-clamp-2">
-                      {article.title}
-                    </h3>
-                    <p className="text-slate-600 text-xs sm:text-sm line-clamp-2 sm:line-clamp-3 mb-2 sm:mb-4 flex-1 hidden min-[360px]:block">
-                      {article.excerpt}
-                    </p>
-                    <div className="flex items-center justify-between pt-2 sm:pt-4 border-t border-slate-100 mt-auto">
-                      <span className="text-[10px] sm:text-xs text-slate-500 font-medium">{article.readTime}</span>
-                      <span className="text-blue-600 text-xs sm:text-sm font-medium flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                        Read <ArrowRight className="w-3 h-3" />
-                      </span>
+                    <div className="p-3 sm:p-6 flex flex-col flex-1">
+                      <div className="flex items-center gap-2 text-[10px] sm:text-xs text-slate-500 mb-1.5 sm:mb-3">
+                        <span className="font-medium text-blue-600">{article.author}</span>
+                        <span>•</span>
+                        <span>{article.date}</span>
+                      </div>
+                      <h3 className="text-sm sm:text-xl font-bold text-slate-900 mb-1 sm:mb-3 group-hover:text-blue-600 transition-colors line-clamp-2">
+                        {article.title}
+                      </h3>
+                      <p className="text-slate-600 text-xs sm:text-sm line-clamp-2 sm:line-clamp-3 mb-2 sm:mb-4 flex-1 hidden min-[360px]:block">
+                        {article.excerpt}
+                      </p>
+                      <div className="flex items-center justify-between pt-2 sm:pt-4 border-t border-slate-100 mt-auto">
+                        <span className="text-[10px] sm:text-xs text-slate-500 font-medium">{article.readTime}</span>
+                        <span className="text-blue-600 text-xs sm:text-sm font-medium flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                          Read <ArrowRight className="w-3 h-3" />
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
+                  </Link>
+                ))
+              )}
             </div>
           </div>
 

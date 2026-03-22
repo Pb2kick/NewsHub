@@ -7,6 +7,7 @@ import { NEWS_ARTICLES } from '../mockData';
 export default function Article() {
   const { id } = useParams();
   const routeContext = useLocation();
+  const hasImage = (imageUrl) => typeof imageUrl === 'string' && imageUrl.trim().length > 0;
   const [article, setArticle] = useState(routeContext.state?.article || null);
   const [allArticles, setAllArticles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,7 +171,11 @@ export default function Article() {
           </header>
 
           <div className="mb-10 rounded-2xl overflow-hidden shadow-sm">
-            <img src={displayArticle.image} alt={displayArticle.title} className="w-full h-[400px] object-cover" />
+            {hasImage(displayArticle.image) ? (
+              <img src={displayArticle.image} alt={displayArticle.title} className="w-full h-[400px] object-cover" />
+            ) : (
+              <div className="w-full h-[400px] bg-gradient-to-br from-slate-200 via-slate-300 to-slate-400" />
+            )}
           </div>
 
           <div className="prose prose-lg prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-a:text-blue-600 prose-img:rounded-xl">
@@ -218,11 +223,15 @@ export default function Article() {
                 <Link key={relatedArticle.id} to={`/news/${relatedArticle.id}`} state={{ article: relatedArticle }} className="group block">
                   <div className="flex gap-4 items-start">
                     <div className="w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden">
-                      <img
-                        src={relatedArticle.image}
-                        alt={relatedArticle.title}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                      />
+                      {hasImage(relatedArticle.image) ? (
+                        <img
+                          src={relatedArticle.image}
+                          alt={relatedArticle.title}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300" />
+                      )}
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-blue-600 mb-1 block">{relatedArticle.category}</span>

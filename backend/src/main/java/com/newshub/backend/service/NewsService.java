@@ -17,9 +17,10 @@ public class NewsService {
     private static final String LOCATION_ALL = "All";
     private static final String LOCATION_NATIONAL = "National";
     private static final String LOCATION_LOCAL = "Local";
+    private static final String LOCATION_INTERNATIONAL = "International";
 
     private static final DateTimeFormatter FEED_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
-    private static final String DEFAULT_IMAGE = "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
+    private static final String LEGACY_STATIC_IMAGE = "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
 
     private final NewsArticleRepository newsArticleRepository;
     private final ExternalNewsService externalNewsService;
@@ -40,6 +41,7 @@ public class NewsService {
         if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
             return newsArticleRepository.findAllByOrderByPublishedAtDescIdDesc()
                     .stream()
+                .filter(article -> isCurrentYear(article.getPublishedAt()))
                     .map(this::toFeedItem)
                     .toList();
         }
@@ -47,12 +49,22 @@ public class NewsService {
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
             return newsArticleRepository.findByCountryIgnoreCaseOrderByPublishedAtDescIdDesc(LOCATION_NATIONAL)
                     .stream()
+                .filter(article -> isCurrentYear(article.getPublishedAt()))
+                    .map(this::toFeedItem)
+                    .toList();
+        }
+
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.findInternationalNews(LOCATION_NATIONAL, "Philippines")
+                    .stream()
+                    .filter(article -> isCurrentYear(article.getPublishedAt()))
                     .map(this::toFeedItem)
                     .toList();
         }
 
         return newsArticleRepository.findNationalAndRegion(LOCATION_NATIONAL, requestedLocation)
                 .stream()
+            .filter(article -> isCurrentYear(article.getPublishedAt()))
                 .map(this::toFeedItem)
                 .toList();
     }
@@ -91,7 +103,7 @@ public class NewsService {
         String excerpt = firstNonBlank(article.getSummary(), truncate(article.getContent(), 180), "No summary available.");
         String author = firstNonBlank(article.getSource(), "NewsHub Desk");
         String category = classifyCategory(article.getSource(), article.getCountry());
-        String image = firstNonBlank(article.getMediaUrls(), DEFAULT_IMAGE);
+        String image = sanitizeImageUrl(article.getMediaUrls());
         String date = article.getPublishedAt() != null
                 ? FEED_DATE_FORMATTER.format(article.getPublishedAt())
                 : "Unknown date";
@@ -114,23 +126,39 @@ public class NewsService {
     }
 
     private void persistExternalNews(List<NewsFeedItem> liveNews, String requestedLocation) {
-        List<NewsArticle> newArticles = liveNews.stream()
-                .filter(item -> !newsArticleRepository.existsByTitleIgnoreCaseAndSourceIgnoreCase(item.title(), item.author()))
-                .map(item -> new NewsArticle(
-                        item.title(),
-                        item.excerpt(),
+        List<NewsArticle> upsertArticles = liveNews.stream()
+            .map(item -> {
+                String normalizedImage = sanitizeImageUrl(item.image());
+                NewsArticle existingArticle = newsArticleRepository
+                    .findFirstByTitleIgnoreCaseAndSourceIgnoreCase(item.title(), item.author())
+                    .orElse(null);
+
+                if (existingArticle != null) {
+                String currentImage = sanitizeImageUrl(existingArticle.getMediaUrls());
+                if (currentImage.isBlank() && !normalizedImage.isBlank()) {
+                    existingArticle.setMediaUrls(normalizedImage);
+                    return existingArticle;
+                }
+                return null;
+                }
+
+                return new NewsArticle(
+                    item.title(),
+                    item.excerpt(),
                     firstNonBlank(item.content(), item.excerpt()),
-                        item.image(),
-                        item.author(),
-                        resolveCountryForLocation(requestedLocation),
-                        resolveRegionForLocation(requestedLocation),
-                        parseFeedDate(item.date()),
-                        null
-                ))
+                    normalizedImage,
+                    item.author(),
+                    resolveCountryForLocation(requestedLocation),
+                    resolveRegionForLocation(requestedLocation),
+                    parseFeedDate(item.date()),
+                    null
+                );
+            })
+            .filter(Objects::nonNull)
                 .toList();
 
-        if (!newArticles.isEmpty()) {
-            newsArticleRepository.saveAll(newArticles);
+        if (!upsertArticles.isEmpty()) {
+            newsArticleRepository.saveAll(upsertArticles);
         }
     }
 
@@ -149,6 +177,11 @@ public class NewsService {
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation) || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
             return "National";
         }
+
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return "International";
+        }
+
         return "Philippines";
     }
 
@@ -156,7 +189,9 @@ public class NewsService {
         if (requestedLocation == null || requestedLocation.isBlank()) {
             return "Metro District";
         }
-        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation) || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)
+                || LOCATION_ALL.equalsIgnoreCase(requestedLocation)
+                || LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
             return null;
         }
         return requestedLocation;
@@ -198,6 +233,27 @@ public class NewsService {
             return text;
         }
         return text.substring(0, maxLength - 3) + "...";
+    }
+
+    private String sanitizeImageUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return "";
+        }
+
+        String normalized = imageUrl.trim();
+        if (LEGACY_STATIC_IMAGE.equals(normalized)) {
+            return "";
+        }
+
+        return normalized;
+    }
+
+    private boolean isCurrentYear(LocalDateTime publishedAt) {
+        if (publishedAt == null) {
+            return false;
+        }
+
+        return publishedAt.getYear() == LocalDateTime.now().getYear();
     }
 
     private String firstNonBlank(String... values) {

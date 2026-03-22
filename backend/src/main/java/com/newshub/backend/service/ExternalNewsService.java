@@ -14,6 +14,7 @@ import org.xml.sax.InputSource;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -28,6 +29,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -35,7 +38,8 @@ public class ExternalNewsService {
 
     private static final DateTimeFormatter FEED_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter RSS_DATE_FORMATTER = DateTimeFormatter.RFC_1123_DATE_TIME;
-    private static final String DEFAULT_IMAGE = "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
+    private static final Pattern IMG_SRC_PATTERN = Pattern.compile("<img[^>]+src=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
+    private static final String LOCATION_INTERNATIONAL = "International";
 
     private final HttpClient httpClient;
     private final boolean externalNewsEnabled;
@@ -69,7 +73,7 @@ public class ExternalNewsService {
 
         try {
             String query = queryForLocation(requestedLocation);
-            String url = buildGoogleNewsRssUrl(query);
+            String url = buildBingNewsRssUrl(query);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -136,9 +140,9 @@ public class ExternalNewsService {
         }
     }
 
-    private String buildGoogleNewsRssUrl(String query) {
+    private String buildBingNewsRssUrl(String query) {
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        return "https://news.google.com/rss/search?q=" + encodedQuery + "&hl=en-PH&gl=PH&ceid=PH:en";
+        return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en-ph";
     }
 
     private String queryForLocation(String requestedLocation) {
@@ -150,6 +154,10 @@ public class ExternalNewsService {
 
         if ("National".equalsIgnoreCase(location)) {
             return "Philippines national headlines";
+        }
+
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
+            return "world international headlines NOT Philippines";
         }
 
         return location + " Philippines news";
@@ -171,12 +179,19 @@ public class ExternalNewsService {
 
             Element element = (Element) item;
             String title = textContent(element, "title", "Untitled headline");
-            String description = cleanSummary(textContent(element, "description", "Latest updates from trusted outlets."));
+            String rawDescription = textContent(element, "description", "Latest updates from trusted outlets.");
+            String description = cleanSummary(rawDescription);
             String content = description;
             String source = sourceName(element);
-            String pubDate = formatPubDate(textContent(element, "pubDate", ""));
-            String imageUrl = extractImageUrl(element);
-            String articleUrl = textContent(element, "link", "");
+            ZonedDateTime publishedAt = parsePubDate(textContent(element, "pubDate", ""));
+            if (!isCurrentYear(publishedAt)) {
+                continue;
+            }
+
+            String pubDate = formatPubDate(publishedAt);
+            String rawArticleUrl = textContent(element, "link", "");
+            String articleUrl = resolvePublisherUrl(rawArticleUrl);
+            String imageUrl = extractImageUrl(element, rawDescription, articleUrl);
 
             output.add(new NewsFeedItem(
                     syntheticId(title, pubDate),
@@ -188,7 +203,7 @@ public class ExternalNewsService {
                     source,
                     pubDate,
                     "3 min read",
-                    firstNonBlank(imageUrl, DEFAULT_IMAGE),
+                    imageUrl,
                     "EXTERNAL",
                     firstNonBlank(articleUrl, null)
             ));
@@ -202,32 +217,162 @@ public class ExternalNewsService {
     }
 
     private String sourceName(Element itemElement) {
-        NodeList sourceNodes = itemElement.getElementsByTagName("source");
-        if (sourceNodes.getLength() == 0) {
-            return "News Outlet";
-        }
-        String source = sourceNodes.item(0).getTextContent();
+        String source = firstNonBlank(
+                textContent(itemElement, "source", ""),
+                textContent(itemElement, "News:Source", ""),
+                textContent(itemElement, "dc:creator", "")
+        );
         return firstNonBlank(source, "News Outlet");
     }
 
-    private String extractImageUrl(Element itemElement) {
-        NodeList mediaContentNodes = itemElement.getElementsByTagName("media:content");
-        if (mediaContentNodes.getLength() > 0 && mediaContentNodes.item(0).getNodeType() == Node.ELEMENT_NODE) {
-            String mediaUrl = ((Element) mediaContentNodes.item(0)).getAttribute("url");
+    private String extractImageUrl(Element itemElement, String rawDescription, String articleUrl) {
+        String fromBingImage = textContent(itemElement, "News:Image", "");
+        if (!fromBingImage.isBlank()) {
+            return fromBingImage;
+        }
+
+        String fromMediaContent = extractFromMediaNodes(itemElement, "media:content");
+        if (!fromMediaContent.isBlank()) {
+            return fromMediaContent;
+        }
+
+        String fromMediaThumb = extractFromMediaNodes(itemElement, "media:thumbnail");
+        if (!fromMediaThumb.isBlank()) {
+            return fromMediaThumb;
+        }
+
+        String fromEnclosure = extractFromMediaNodes(itemElement, "enclosure");
+        if (!fromEnclosure.isBlank()) {
+            return fromEnclosure;
+        }
+
+        String fromDescription = extractFromDescriptionImage(rawDescription);
+        if (!fromDescription.isBlank()) {
+            return fromDescription;
+        }
+
+        String fromArticleMeta = extractImageFromArticleMeta(articleUrl);
+        if (!fromArticleMeta.isBlank()) {
+            return fromArticleMeta;
+        }
+
+        return buildArticlePreviewImage(articleUrl);
+    }
+
+    private String extractFromMediaNodes(Element itemElement, String tagName) {
+        NodeList mediaNodes = itemElement.getElementsByTagName(tagName);
+        for (int index = 0; index < mediaNodes.getLength(); index++) {
+            Node node = mediaNodes.item(index);
+            if (node.getNodeType() != Node.ELEMENT_NODE) {
+                continue;
+            }
+
+            String mediaUrl = ((Element) node).getAttribute("url");
             if (mediaUrl != null && !mediaUrl.isBlank()) {
                 return mediaUrl;
             }
         }
 
-        NodeList mediaThumbNodes = itemElement.getElementsByTagName("media:thumbnail");
-        if (mediaThumbNodes.getLength() > 0 && mediaThumbNodes.item(0).getNodeType() == Node.ELEMENT_NODE) {
-            String thumbUrl = ((Element) mediaThumbNodes.item(0)).getAttribute("url");
-            if (thumbUrl != null && !thumbUrl.isBlank()) {
-                return thumbUrl;
-            }
+        return "";
+    }
+
+    private String extractFromDescriptionImage(String rawDescription) {
+        if (rawDescription == null || rawDescription.isBlank()) {
+            return "";
         }
 
-        return DEFAULT_IMAGE;
+        Matcher matcher = IMG_SRC_PATTERN.matcher(rawDescription);
+        if (!matcher.find()) {
+            return "";
+        }
+
+        String imageUrl = matcher.group(1);
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return "";
+        }
+
+        return imageUrl.replace("&amp;", "&");
+    }
+
+    private String extractImageFromArticleMeta(String articleUrl) {
+        if (articleUrl == null || articleUrl.isBlank()) {
+            return "";
+        }
+
+        try {
+            Document doc = Jsoup.connect(articleUrl)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .timeout(8000)
+                    .get();
+
+            String openGraph = firstNonBlank(
+                    doc.select("meta[property=og:image]").attr("content"),
+                    doc.select("meta[name=twitter:image]").attr("content"),
+                    doc.select("link[rel=image_src]").attr("href")
+            );
+
+            if (!openGraph.isBlank()) {
+                return openGraph;
+            }
+
+            return doc.select("img[src]").stream()
+                    .map(element -> element.attr("abs:src"))
+                    .filter(url -> url != null && !url.isBlank())
+                    .findFirst()
+                    .orElse("");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private String resolvePublisherUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return "";
+        }
+
+        String normalized = rawUrl.trim();
+        if (!normalized.contains("bing.com/news/apiclick")) {
+            return normalized;
+        }
+
+        try {
+            URI uri = URI.create(normalized);
+            String directUrl = queryParameter(uri.getQuery(), "url");
+            return firstNonBlank(directUrl, normalized);
+        } catch (Exception ignored) {
+            return normalized;
+        }
+    }
+
+    private String queryParameter(String query, String key) {
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+
+        for (String pair : query.split("&")) {
+            int separatorIndex = pair.indexOf('=');
+            if (separatorIndex <= 0) {
+                continue;
+            }
+
+            String currentKey = URLDecoder.decode(pair.substring(0, separatorIndex), StandardCharsets.UTF_8);
+            if (!key.equals(currentKey)) {
+                continue;
+            }
+
+            return URLDecoder.decode(pair.substring(separatorIndex + 1), StandardCharsets.UTF_8);
+        }
+
+        return "";
+    }
+
+    private String buildArticlePreviewImage(String articleUrl) {
+        if (articleUrl == null || articleUrl.isBlank()) {
+            return "";
+        }
+
+        String encoded = URLEncoder.encode(articleUrl, StandardCharsets.UTF_8);
+        return "https://image.thum.io/get/width/1200/noanimate/" + encoded;
     }
 
     private String cleanSummary(String description) {
@@ -244,9 +389,28 @@ public class ExternalNewsService {
         return noTags.isBlank() ? "Latest updates from trusted outlets." : noTags;
     }
 
-    private String formatPubDate(String rawPubDate) {
+    private ZonedDateTime parsePubDate(String rawPubDate) {
+        if (rawPubDate == null || rawPubDate.isBlank()) {
+            return null;
+        }
+
         try {
-            ZonedDateTime parsed = ZonedDateTime.parse(rawPubDate, RSS_DATE_FORMATTER);
+            return ZonedDateTime.parse(rawPubDate, RSS_DATE_FORMATTER);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean isCurrentYear(ZonedDateTime publishedAt) {
+        if (publishedAt == null) {
+            return false;
+        }
+
+        return publishedAt.getYear() == ZonedDateTime.now().getYear();
+    }
+
+    private String formatPubDate(ZonedDateTime parsed) {
+        try {
             return FEED_DATE_FORMATTER.format(parsed);
         } catch (Exception ignored) {
             return "Latest";
