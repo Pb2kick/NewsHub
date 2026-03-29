@@ -23,15 +23,33 @@ public class NewsController {
         this.externalNewsService = externalNewsService;
     }
 
+    /**
+     * Returns location-aware news for selected scope and user base location.
+     *
+     * @param location scope filter such as Local, National, or International
+     * @param lat optional latitude for local scope
+     * @param lng optional longitude for local scope
+     * @param country optional country context from user location changer
+     * @param area optional area context from user location changer
+     * @return filtered feed items
+     */
     @GetMapping
         public List<NewsFeedItem> getNews(
             @RequestParam(required = false) String location,
             @RequestParam(required = false) Double lat,
-            @RequestParam(required = false) Double lng
+            @RequestParam(required = false) Double lng,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String area
     ) {
-        return newsService.getNews(location, lat, lng);
+        return newsService.getNews(location, lat, lng, country, area);
     }
 
+    /**
+     * Extracts readable article content from a source URL.
+     *
+     * @param url source URL
+     * @return extracted content payload
+     */
     @GetMapping("/content")
     public ArticleContentResponse getArticleContent(@RequestParam String url) {
         String extractedContent = externalNewsService.extractArticleContent(url);

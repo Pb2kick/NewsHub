@@ -25,16 +25,33 @@ public class NewsService {
     private final NewsArticleRepository newsArticleRepository;
     private final ExternalNewsService externalNewsService;
 
+    /**
+     * Creates the news service with persistence and live feed dependencies.
+     *
+     * @param newsArticleRepository repository for local news records
+     * @param externalNewsService service for live external feeds
+     */
     public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService) {
         this.newsArticleRepository = newsArticleRepository;
         this.externalNewsService = externalNewsService;
     }
 
-    public List<NewsFeedItem> getNews(String location, Double latitude, Double longitude) {
-        String requestedLocation = normalizeLocation(location, latitude, longitude);
-        List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation);
+    /**
+     * Returns current-year news for the requested location mode.
+     *
+     * @param location location mode or resolved region name
+     * @param latitude optional latitude for local mode
+     * @param longitude optional longitude for local mode
+     * @param country selected country context
+     * @param area selected area context
+     * @return ordered list of feed items
+     */
+    public List<NewsFeedItem> getNews(String location, Double latitude, Double longitude, String country, String area) {
+        String requestedCountry = normalizeCountry(country);
+        String requestedLocation = normalizeLocation(location, latitude, longitude, area);
+        List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
         if (!liveNews.isEmpty()) {
-            persistExternalNews(liveNews, requestedLocation);
+            persistExternalNews(liveNews, requestedLocation, requestedCountry);
             return liveNews;
         }
 
@@ -47,7 +64,7 @@ public class NewsService {
         }
 
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.findByCountryIgnoreCaseOrderByPublishedAtDescIdDesc(LOCATION_NATIONAL)
+            return newsArticleRepository.findNationalNews(requestedCountry, LOCATION_NATIONAL)
                     .stream()
                 .filter(article -> isCurrentYear(article.getPublishedAt()))
                     .map(this::toFeedItem)
@@ -55,32 +72,61 @@ public class NewsService {
         }
 
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.findInternationalNews(LOCATION_NATIONAL, "Philippines")
+            return newsArticleRepository.findInternationalNews(LOCATION_NATIONAL, requestedCountry)
                     .stream()
                     .filter(article -> isCurrentYear(article.getPublishedAt()))
                     .map(this::toFeedItem)
                     .toList();
         }
 
-        return newsArticleRepository.findNationalAndRegion(LOCATION_NATIONAL, requestedLocation)
+        return newsArticleRepository.findNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation)
                 .stream()
             .filter(article -> isCurrentYear(article.getPublishedAt()))
                 .map(this::toFeedItem)
                 .toList();
     }
 
-    private String normalizeLocation(String location, Double latitude, Double longitude) {
+    /**
+     * Normalizes incoming location mode to a concrete location used for lookups.
+     *
+     * @param location incoming location mode
+     * @param latitude optional latitude
+     * @param longitude optional longitude
+     * @param area selected area context
+     * @return normalized lookup location
+     */
+    private String normalizeLocation(String location, Double latitude, Double longitude, String area) {
         if (location == null || location.isBlank()) {
-            return resolveLocationFromCoordinates(latitude, longitude);
+            return firstNonBlank(area, resolveLocationFromCoordinates(latitude, longitude));
         }
 
         if (LOCATION_LOCAL.equalsIgnoreCase(location)) {
+            if (area != null && !area.isBlank()) {
+                return area;
+            }
             return resolveLocationFromCoordinates(latitude, longitude);
         }
 
         return location;
     }
 
+    /**
+     * Normalizes country context with safe fallback.
+     *
+     * @param country selected country context
+     * @return normalized country value
+     */
+    private String normalizeCountry(String country) {
+        return firstNonBlank(country, "Philippines");
+    }
+
+    /**
+     * Resolves a deterministic local area from coordinates.
+     *
+     * @param latitude latitude value
+     * @param longitude longitude value
+     * @return resolved area name
+     */
     private String resolveLocationFromCoordinates(Double latitude, Double longitude) {
         if (Objects.isNull(latitude) || Objects.isNull(longitude)) {
             return "Metro District";
@@ -98,6 +144,12 @@ public class NewsService {
         return "Metro District";
     }
 
+    /**
+     * Maps a persisted entity to API feed shape.
+     *
+     * @param article news entity
+     * @return mapped feed item
+     */
     private NewsFeedItem toFeedItem(NewsArticle article) {
         String effectiveLocation = firstNonBlank(article.getRegion(), article.getCountry(), LOCATION_NATIONAL);
         String excerpt = firstNonBlank(article.getSummary(), truncate(article.getContent(), 180), "No summary available.");
@@ -125,7 +177,14 @@ public class NewsService {
         );
     }
 
-    private void persistExternalNews(List<NewsFeedItem> liveNews, String requestedLocation) {
+    /**
+     * Stores fresh external items while avoiding duplicate rows.
+     *
+     * @param liveNews fetched live items
+     * @param requestedLocation resolved location used to derive country and region
+     * @param requestedCountry selected country context
+     */
+    private void persistExternalNews(List<NewsFeedItem> liveNews, String requestedLocation, String requestedCountry) {
         List<NewsArticle> upsertArticles = liveNews.stream()
             .map(item -> {
                 String normalizedImage = sanitizeImageUrl(item.image());
@@ -148,7 +207,7 @@ public class NewsService {
                     firstNonBlank(item.content(), item.excerpt()),
                     normalizedImage,
                     item.author(),
-                    resolveCountryForLocation(requestedLocation),
+                    resolveCountryForLocation(requestedLocation, requestedCountry),
                     resolveRegionForLocation(requestedLocation),
                     parseFeedDate(item.date()),
                     null
@@ -162,6 +221,12 @@ public class NewsService {
         }
     }
 
+    /**
+     * Parses feed date text into a persisted timestamp.
+     *
+     * @param feedDate feed date in MMM d, yyyy format
+     * @return parsed date or current time when parsing fails
+     */
     private LocalDateTime parseFeedDate(String feedDate) {
         if (feedDate == null || feedDate.isBlank() || "Latest".equalsIgnoreCase(feedDate)) {
             return LocalDateTime.now();
@@ -173,9 +238,16 @@ public class NewsService {
         }
     }
 
-    private String resolveCountryForLocation(String requestedLocation) {
+    /**
+     * Derives country classification from selected location.
+     *
+     * @param requestedLocation selected location
+     * @param requestedCountry selected country context
+     * @return country value for persistence
+     */
+    private String resolveCountryForLocation(String requestedLocation, String requestedCountry) {
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation) || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
-            return "National";
+            return requestedCountry;
         }
 
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
@@ -185,6 +257,12 @@ public class NewsService {
         return "Philippines";
     }
 
+    /**
+     * Derives region value from selected location.
+     *
+     * @param requestedLocation selected location
+     * @return region value or null for non-regional modes
+     */
     private String resolveRegionForLocation(String requestedLocation) {
         if (requestedLocation == null || requestedLocation.isBlank()) {
             return "Metro District";
@@ -197,6 +275,13 @@ public class NewsService {
         return requestedLocation;
     }
 
+    /**
+     * Classifies content category from source and country.
+     *
+     * @param source article source
+     * @param country article country
+     * @return category label
+     */
     private String classifyCategory(String source, String country) {
         String src = firstNonBlank(source, "").toLowerCase(Locale.ROOT);
         if (src.contains("election")) {
@@ -216,6 +301,12 @@ public class NewsService {
         return "Top Story";
     }
 
+    /**
+     * Estimates reading time based on article word count.
+     *
+     * @param content article content
+     * @return read-time label
+     */
     private String estimateReadTime(String content) {
         if (content == null || content.isBlank()) {
             return "3 min read";
@@ -225,6 +316,13 @@ public class NewsService {
         return minutes + " min read";
     }
 
+    /**
+     * Truncates text with ellipsis to fit the configured limit.
+     *
+     * @param text source text
+     * @param maxLength maximum character count
+     * @return truncated text
+     */
     private String truncate(String text, int maxLength) {
         if (text == null || text.isBlank()) {
             return "";
@@ -235,6 +333,12 @@ public class NewsService {
         return text.substring(0, maxLength - 3) + "...";
     }
 
+    /**
+     * Normalizes image URL and removes deprecated static placeholder image.
+     *
+     * @param imageUrl raw image URL
+     * @return normalized image URL or empty string
+     */
     private String sanitizeImageUrl(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) {
             return "";
@@ -248,6 +352,12 @@ public class NewsService {
         return normalized;
     }
 
+    /**
+     * Validates that an article belongs to the current calendar year.
+     *
+     * @param publishedAt publish timestamp
+     * @return true when article is from current year
+     */
     private boolean isCurrentYear(LocalDateTime publishedAt) {
         if (publishedAt == null) {
             return false;
@@ -256,6 +366,12 @@ public class NewsService {
         return publishedAt.getYear() == LocalDateTime.now().getYear();
     }
 
+    /**
+     * Returns the first non-empty string from a sequence.
+     *
+     * @param values candidate values
+     * @return first non-blank value or empty string
+     */
     private String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {

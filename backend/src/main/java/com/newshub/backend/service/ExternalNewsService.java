@@ -39,6 +39,8 @@ public class ExternalNewsService {
     private static final DateTimeFormatter FEED_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter RSS_DATE_FORMATTER = DateTimeFormatter.RFC_1123_DATE_TIME;
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile("<img[^>]+src=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
+    private static final Pattern WIDTH_PARAM_PATTERN = Pattern.compile("([?&](?:w|width|wid)=)(\\d{2,5})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern QUALITY_PARAM_PATTERN = Pattern.compile("([?&](?:q|quality)=)(\\d{1,3})", Pattern.CASE_INSENSITIVE);
     private static final String LOCATION_INTERNATIONAL = "International";
 
     private final HttpClient httpClient;
@@ -60,19 +62,26 @@ public class ExternalNewsService {
         this.cacheTtlMinutes = cacheTtlMinutes;
     }
 
-    public List<NewsFeedItem> fetchLiveNews(String requestedLocation) {
+    /**
+     * Fetches live RSS news for a location scope and country context.
+     *
+     * @param requestedLocation selected scope or resolved area
+     * @param requestedCountry selected country context
+     * @return feed items from cache or live source
+     */
+    public List<NewsFeedItem> fetchLiveNews(String requestedLocation, String requestedCountry) {
         if (!externalNewsEnabled) {
             return List.of();
         }
 
-        String cacheKey = normalizeLocationKey(requestedLocation);
+        String cacheKey = normalizeLocationKey(requestedLocation, requestedCountry);
         CacheEntry cached = cacheByLocation.get(cacheKey);
         if (cached != null && !isExpired(cached.cachedAt())) {
             return cached.items();
         }
 
         try {
-            String query = queryForLocation(requestedLocation);
+            String query = queryForLocation(requestedLocation, requestedCountry);
             String url = buildBingNewsRssUrl(query);
 
             HttpRequest request = HttpRequest.newBuilder()
@@ -145,22 +154,30 @@ public class ExternalNewsService {
         return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en-ph";
     }
 
-    private String queryForLocation(String requestedLocation) {
+    /**
+     * Builds RSS search query from location scope and country context.
+     *
+     * @param requestedLocation selected scope or resolved area
+     * @param requestedCountry selected country context
+     * @return encoded query input for news search
+     */
+    private String queryForLocation(String requestedLocation, String requestedCountry) {
+        String country = requestedCountry == null || requestedCountry.isBlank() ? "Philippines" : requestedCountry;
         String location = requestedLocation == null || requestedLocation.isBlank() ? "National" : requestedLocation;
 
         if ("All".equalsIgnoreCase(location)) {
-            return "Philippines latest news";
+            return country + " latest news";
         }
 
         if ("National".equalsIgnoreCase(location)) {
-            return "Philippines national headlines";
+            return country + " national headlines";
         }
 
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
-            return "world international headlines NOT Philippines";
+            return "world international headlines near " + country + " NOT " + country;
         }
 
-        return location + " Philippines news";
+        return location + " " + country + " news";
     }
 
     private List<NewsFeedItem> parseRssItems(String xmlContent, String requestedLocation) throws Exception {
@@ -226,37 +243,37 @@ public class ExternalNewsService {
     }
 
     private String extractImageUrl(Element itemElement, String rawDescription, String articleUrl) {
-        String fromBingImage = textContent(itemElement, "News:Image", "");
+        String fromBingImage = normalizeImageUrl(textContent(itemElement, "News:Image", ""));
         if (!fromBingImage.isBlank()) {
             return fromBingImage;
         }
 
-        String fromMediaContent = extractFromMediaNodes(itemElement, "media:content");
+        String fromMediaContent = normalizeImageUrl(extractFromMediaNodes(itemElement, "media:content"));
         if (!fromMediaContent.isBlank()) {
             return fromMediaContent;
         }
 
-        String fromMediaThumb = extractFromMediaNodes(itemElement, "media:thumbnail");
+        String fromMediaThumb = normalizeImageUrl(extractFromMediaNodes(itemElement, "media:thumbnail"));
         if (!fromMediaThumb.isBlank()) {
             return fromMediaThumb;
         }
 
-        String fromEnclosure = extractFromMediaNodes(itemElement, "enclosure");
+        String fromEnclosure = normalizeImageUrl(extractFromMediaNodes(itemElement, "enclosure"));
         if (!fromEnclosure.isBlank()) {
             return fromEnclosure;
         }
 
-        String fromDescription = extractFromDescriptionImage(rawDescription);
+        String fromDescription = normalizeImageUrl(extractFromDescriptionImage(rawDescription));
         if (!fromDescription.isBlank()) {
             return fromDescription;
         }
 
-        String fromArticleMeta = extractImageFromArticleMeta(articleUrl);
+        String fromArticleMeta = normalizeImageUrl(extractImageFromArticleMeta(articleUrl));
         if (!fromArticleMeta.isBlank()) {
             return fromArticleMeta;
         }
 
-        return buildArticlePreviewImage(articleUrl);
+        return "";
     }
 
     private String extractFromMediaNodes(Element itemElement, String tagName) {
@@ -306,9 +323,9 @@ public class ExternalNewsService {
                     .get();
 
             String openGraph = firstNonBlank(
-                    doc.select("meta[property=og:image]").attr("content"),
-                    doc.select("meta[name=twitter:image]").attr("content"),
-                    doc.select("link[rel=image_src]").attr("href")
+                    doc.select("meta[property=og:image]").attr("abs:content"),
+                    doc.select("meta[name=twitter:image]").attr("abs:content"),
+                    doc.select("link[rel=image_src]").attr("abs:href")
             );
 
             if (!openGraph.isBlank()) {
@@ -366,13 +383,29 @@ public class ExternalNewsService {
         return "";
     }
 
-    private String buildArticlePreviewImage(String articleUrl) {
-        if (articleUrl == null || articleUrl.isBlank()) {
+    /**
+     * Normalizes image URLs and boosts common low-resolution CDN parameters.
+     *
+     * @param imageUrl raw image URL
+     * @return optimized image URL or empty string when invalid
+     */
+    private String normalizeImageUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
             return "";
         }
 
-        String encoded = URLEncoder.encode(articleUrl, StandardCharsets.UTF_8);
-        return "https://image.thum.io/get/width/1200/noanimate/" + encoded;
+        String normalized = imageUrl.trim().replace("&amp;", "&");
+        if (!(normalized.startsWith("http://") || normalized.startsWith("https://"))) {
+            return "";
+        }
+
+        if (normalized.contains("image.thum.io")) {
+            return "";
+        }
+
+        normalized = WIDTH_PARAM_PATTERN.matcher(normalized).replaceAll("$11600");
+        normalized = QUALITY_PARAM_PATTERN.matcher(normalized).replaceAll("$180");
+        return normalized;
     }
 
     private String cleanSummary(String description) {
@@ -435,11 +468,19 @@ public class ExternalNewsService {
         return "";
     }
 
-    private String normalizeLocationKey(String requestedLocation) {
+    /**
+     * Generates cache key by location and country context.
+     *
+     * @param requestedLocation selected scope or resolved area
+     * @param requestedCountry selected country context
+     * @return normalized cache key
+     */
+    private String normalizeLocationKey(String requestedLocation, String requestedCountry) {
+        String country = requestedCountry == null || requestedCountry.isBlank() ? "philippines" : requestedCountry;
         if (requestedLocation == null || requestedLocation.isBlank()) {
-            return "national";
+            return "national|" + country.trim().toLowerCase(Locale.ROOT);
         }
-        return requestedLocation.trim().toLowerCase(Locale.ROOT);
+        return requestedLocation.trim().toLowerCase(Locale.ROOT) + "|" + country.trim().toLowerCase(Locale.ROOT);
     }
 
     private boolean isExpired(Instant cachedAt) {
