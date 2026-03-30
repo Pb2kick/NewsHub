@@ -12,6 +12,7 @@ public record NewsFeedItem(
         String readTime,
         String image,
         String sourceType,
-        String sourceUrl
+        String sourceUrl,
+        String publisherImage
 ) {
 }

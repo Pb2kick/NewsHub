@@ -154,7 +154,7 @@ public class NewsService {
         String effectiveLocation = firstNonBlank(article.getRegion(), article.getCountry(), LOCATION_NATIONAL);
         String excerpt = firstNonBlank(article.getSummary(), truncate(article.getContent(), 180), "No summary available.");
         String author = firstNonBlank(article.getSource(), "NewsHub Desk");
-        String category = classifyCategory(article.getSource(), article.getCountry());
+        String category = classifyCategory(article.getSource(), article.getTitle(), article.getSummary(), article.getContent());
         String image = sanitizeImageUrl(article.getMediaUrls());
         String date = article.getPublishedAt() != null
                 ? FEED_DATE_FORMATTER.format(article.getPublishedAt())
@@ -173,6 +173,7 @@ public class NewsService {
                 readTime,
                 image,
             "DATABASE",
+            null,
             null
         );
     }
@@ -276,29 +277,50 @@ public class NewsService {
     }
 
     /**
-     * Classifies content category from source and country.
+     * Classifies article category using explicit source cues and text keywords.
      *
      * @param source article source
-     * @param country article country
-     * @return category label
+     * @param title article title
+     * @param summary article summary
+     * @param content article content
+     * @return category label aligned with homepage tabs
      */
-    private String classifyCategory(String source, String country) {
-        String src = firstNonBlank(source, "").toLowerCase(Locale.ROOT);
-        if (src.contains("election")) {
-            return "Politics";
+    private String classifyCategory(String source, String title, String summary, String content) {
+        String searchable = (firstNonBlank(source, "") + " "
+                + firstNonBlank(title, "") + " "
+                + firstNonBlank(summary, "") + " "
+                + firstNonBlank(content, "")).toLowerCase(Locale.ROOT);
+
+        if (containsAny(searchable, "election", "vote", "voting", "candidate", "campaign", "ballot", "poll")) {
+            return "Elections";
         }
-        if (src.contains("tech") || src.contains("cyber")) {
+        if (containsAny(searchable, "technology", "tech", "cyber", "digital", "software", "ai", "data", "platform")) {
             return "Technology";
         }
-        if (src.contains("transport") || src.contains("transit")) {
-            return "Infrastructure";
+        if (containsAny(searchable, "economy", "economic", "business", "market", "finance", "inflation", "trade", "gdp")) {
+            return "Economy";
+        }
+        if (containsAny(searchable, "politic", "government", "senate", "congress", "policy", "commission", "legislation")) {
+            return "Politics";
         }
 
-        if ("National".equalsIgnoreCase(country)) {
-            return "National";
-        }
+        return "Top Stories";
+    }
 
-        return "Top Story";
+    /**
+     * Determines whether any keyword exists in normalized text.
+     *
+     * @param searchable normalized searchable text
+     * @param keywords keyword list
+     * @return true when any keyword matches
+     */
+    private boolean containsAny(String searchable, String... keywords) {
+        for (String keyword : keywords) {
+            if (searchable.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

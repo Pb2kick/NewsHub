@@ -168,6 +168,8 @@ export function useLocationNews() {
     /** Loads location-aware news with cancellation safety. */
     async function loadLocationNews() {
       setIsNewsLoading(true);
+      setNewsArticles([]);
+      setNewsError('');
       try {
         const fetchedNews = await fetchNewsByLocation({ ...locationRequest, signal: abortController.signal });
         if (!abortController.signal.aborted) {

@@ -16,12 +16,12 @@ export default function HomeSidebar({ activeElections }) {
             <TrendingUp className="w-5 h-5 text-blue-600" />
             Active Elections
           </h3>
-          <Link to="/home" className="text-sm font-medium text-blue-600 hover:text-blue-700">View All</Link>
+          <Link to="/elections" className="text-sm font-medium text-blue-600 hover:text-blue-700">View All</Link>
         </div>
 
         <div className="space-y-4">
           {activeElections.map((election) => (
-            <Link key={election.id} to="/home" className="block group">
+            <Link key={election.id} to={`/elections/${election.id}`} className="block group">
               <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 transition-all">
                 <div className="flex justify-between items-start mb-2">
                   <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded-full">{election.status}</span>

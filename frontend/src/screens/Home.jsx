@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ELECTIONS } from '../mockData';
 import { supabase } from '../supabaseClient';
 import HomeFooter from '../components/home/HomeFooter';
@@ -8,6 +9,12 @@ import HomeNewsGrid from '../components/home/HomeNewsGrid';
 import HomeSidebar from '../components/home/HomeSidebar';
 import { useLocationNews } from '../hooks/useLocationNews';
 import { useProfileMenu } from '../hooks/useProfileMenu';
+import {
+  filterNewsByCategory,
+  NEWS_CATEGORY_TABS,
+  NEWS_CATEGORY_TOP_STORIES,
+  tagNewsArticlesByCategory,
+} from '../utils/newsCategories';
 
 /**
  * Returns whether an image URL can be rendered.
@@ -23,6 +30,7 @@ function hasImage(imageUrl) {
  * @returns {JSX.Element}
  */
 export default function Home() {
+  const navigate = useNavigate();
   const {
     selectedLocation,
     locationLabel,
@@ -37,6 +45,7 @@ export default function Home() {
     userLocationDisplayLabel,
     isUsingCurrentLocation,
   } = useLocationNews();
+  const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
   const {
     isProfileMenuOpen,
     setIsProfileMenuOpen,
@@ -45,11 +54,25 @@ export default function Home() {
     profileInitials,
   } = useProfileMenu();
 
-  const featuredArticle = newsArticles[0];
-  const otherArticles = useMemo(() => newsArticles.slice(1), [newsArticles]);
+  const taggedArticles = useMemo(() => tagNewsArticlesByCategory(newsArticles), [newsArticles]);
+  const filteredArticles = useMemo(
+    () => filterNewsByCategory(taggedArticles, selectedNewsCategory),
+    [taggedArticles, selectedNewsCategory]
+  );
+  const featuredArticle = filteredArticles[0];
+  const otherArticles = useMemo(() => filteredArticles.slice(1), [filteredArticles]);
   const activeElections = ELECTIONS.slice(0, 2);
-  const topCategories = ['Top Stories', 'Politics', 'Economy', 'Local', 'International', 'Elections 2026'];
+  const topCategories = NEWS_CATEGORY_TABS;
   const showInitialNewsLoading = isNewsLoading && newsArticles.length === 0;
+
+  /** Handles top header category actions including elections navigation. */
+  const handleSelectNewsCategory = (nextCategory) => {
+    if (nextCategory === 'Elections') {
+      navigate('/elections');
+      return;
+    }
+    setSelectedNewsCategory(nextCategory);
+  };
 
   /** Signs out the user and redirects to login. */
   const handleLogout = async () => {
@@ -67,6 +90,8 @@ export default function Home() {
         isDetecting={isDetecting}
         isUsingCurrentLocation={isUsingCurrentLocation}
         topCategories={topCategories}
+        selectedNewsCategory={selectedNewsCategory}
+        onSelectNewsCategory={handleSelectNewsCategory}
         isProfileMenuOpen={isProfileMenuOpen}
         setIsProfileMenuOpen={setIsProfileMenuOpen}
         setProfileMenuElement={setProfileMenuElement}

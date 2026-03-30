@@ -17,6 +17,8 @@ export default function HomeHeader(props) {
     isDetecting,
     isUsingCurrentLocation,
     topCategories,
+    selectedNewsCategory,
+    onSelectNewsCategory,
     isProfileMenuOpen,
     setIsProfileMenuOpen,
     setProfileMenuElement,
@@ -101,14 +103,19 @@ export default function HomeHeader(props) {
 
         <div className="h-12 border-t border-slate-100 flex items-center overflow-x-auto no-scrollbar">
           <nav className="flex items-center gap-6 text-sm font-semibold text-slate-500 whitespace-nowrap">
-            {topCategories.map((category, index) => (
-              <Link
+            {topCategories.map((category) => (
+              <button
                 key={category}
-                to="/home"
-                className={`pb-3 border-b-2 transition-colors ${index === 0 ? 'text-blue-600 border-blue-600' : 'border-transparent hover:text-slate-900'}`}
+                type="button"
+                onClick={() => onSelectNewsCategory(category)}
+                className={`pb-3 border-b-2 transition-colors ${
+                  category === selectedNewsCategory
+                    ? 'text-blue-600 border-blue-600'
+                    : 'border-transparent hover:text-slate-900'
+                }`}
               >
                 {category}
-              </Link>
+              </button>
             ))}
           </nav>
           <span className="ml-auto hidden md:block text-xs text-slate-400 truncate max-w-[240px]">

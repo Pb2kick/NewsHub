@@ -16,6 +16,8 @@ import java.io.StringReader;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -29,6 +31,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +44,7 @@ public class ExternalNewsService {
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile("<img[^>]+src=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE);
     private static final Pattern WIDTH_PARAM_PATTERN = Pattern.compile("([?&](?:w|width|wid)=)(\\d{2,5})", Pattern.CASE_INSENSITIVE);
     private static final Pattern QUALITY_PARAM_PATTERN = Pattern.compile("([?&](?:q|quality)=)(\\d{1,3})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SMALL_DIMENSION_PATTERN = Pattern.compile("(\\d{2,3})x(\\d{2,3})", Pattern.CASE_INSENSITIVE);
     private static final String LOCATION_INTERNATIONAL = "International";
 
     private final HttpClient httpClient;
@@ -74,6 +78,7 @@ public class ExternalNewsService {
             return List.of();
         }
 
+        invalidateCacheForCountry(requestedCountry);
         String cacheKey = normalizeLocationKey(requestedLocation, requestedCountry);
         CacheEntry cached = cacheByLocation.get(cacheKey);
         if (cached != null && !isExpired(cached.cachedAt())) {
@@ -109,6 +114,12 @@ public class ExternalNewsService {
         }
     }
 
+    /**
+     * Extracts article body text from a source URL using strict relevance filtering.
+     *
+     * @param sourceUrl source article URL
+     * @return extracted article body text
+     */
     public String extractArticleContent(String sourceUrl) {
         if (sourceUrl == null || sourceUrl.isBlank()) {
             return "";
@@ -125,16 +136,16 @@ public class ExternalNewsService {
                     .timeout(12000)
                     .get();
 
-            Elements candidateParagraphs = doc.select("article p, main p, .article p, .content p, .story p, p");
+            Elements candidateParagraphs = extractCandidateParagraphs(doc);
             LinkedHashSet<String> uniqueParagraphs = new LinkedHashSet<>();
 
             for (org.jsoup.nodes.Element paragraph : candidateParagraphs) {
                 String text = paragraph.text().replaceAll("\\s+", " ").trim();
-                if (text.length() < 80) {
+                if (!isRelevantParagraph(text)) {
                     continue;
                 }
                 uniqueParagraphs.add(text);
-                if (uniqueParagraphs.size() >= 12) {
+                if (uniqueParagraphs.size() >= 32) {
                     break;
                 }
             }
@@ -143,10 +154,43 @@ public class ExternalNewsService {
                 return "";
             }
 
-            return String.join("\n\n", uniqueParagraphs);
+            return normalizeExtractedContent(String.join("\n\n", uniqueParagraphs));
         } catch (Exception ignored) {
             return "";
         }
+    }
+
+    /**
+     * Cleans extracted article text and removes common truncation markers.
+     *
+     * @param extractedContent raw extracted content
+     * @return normalized content with complete ending when possible
+     */
+    private String normalizeExtractedContent(String extractedContent) {
+        if (extractedContent == null || extractedContent.isBlank()) {
+            return "";
+        }
+
+        String collapsed = extractedContent.replaceAll("\\s+", " ").trim();
+        if (collapsed.isBlank()) {
+            return "";
+        }
+
+        String withoutEllipsis = collapsed.replaceAll("(?:\\.\\.\\.|\\u2026)+\\s*$", "").trim();
+        if (withoutEllipsis.isBlank()) {
+            return "";
+        }
+
+        int period = withoutEllipsis.lastIndexOf('.');
+        int exclamation = withoutEllipsis.lastIndexOf('!');
+        int question = withoutEllipsis.lastIndexOf('?');
+        int lastSentenceEnd = Math.max(period, Math.max(exclamation, question));
+
+        if (lastSentenceEnd > (withoutEllipsis.length() / 2)) {
+            return withoutEllipsis.substring(0, lastSentenceEnd + 1).trim();
+        }
+
+        return withoutEllipsis;
     }
 
     private String buildBingNewsRssUrl(String query) {
@@ -200,6 +244,10 @@ public class ExternalNewsService {
             String description = cleanSummary(rawDescription);
             String content = description;
             String source = sourceName(element);
+            String feedCategory = firstNonBlank(
+                    textContent(element, "category", ""),
+                    textContent(element, "News:Category", "")
+            );
             ZonedDateTime publishedAt = parsePubDate(textContent(element, "pubDate", ""));
             if (!isCurrentYear(publishedAt)) {
                 continue;
@@ -209,11 +257,12 @@ public class ExternalNewsService {
             String rawArticleUrl = textContent(element, "link", "");
             String articleUrl = resolvePublisherUrl(rawArticleUrl);
             String imageUrl = extractImageUrl(element, rawDescription, articleUrl);
+                String category = classifyFeedCategory(feedCategory, source, title, description);
 
             output.add(new NewsFeedItem(
                     syntheticId(title, pubDate),
                     requestedLocation,
-                    "Top Story",
+                    category,
                     title,
                     description,
                     content,
@@ -222,7 +271,8 @@ public class ExternalNewsService {
                     "3 min read",
                     imageUrl,
                     "EXTERNAL",
-                    firstNonBlank(articleUrl, null)
+                    firstNonBlank(articleUrl, null),
+                    resolvePublisherImage(articleUrl)
             ));
         }
 
@@ -240,6 +290,67 @@ public class ExternalNewsService {
                 textContent(itemElement, "dc:creator", "")
         );
         return firstNonBlank(source, "News Outlet");
+    }
+
+    /**
+     * Classifies RSS feed items into homepage categories using explicit feed category
+     * and permissive text keyword fallback.
+     *
+     * @param feedCategory explicit RSS category when available
+     * @param source publisher/source string
+     * @param title article title
+     * @param description article summary text
+     * @return category label aligned with homepage tabs
+     */
+    private String classifyFeedCategory(String feedCategory, String source, String title, String description) {
+        String explicit = firstNonBlank(feedCategory, "").toLowerCase(Locale.ROOT);
+        if (containsAny(explicit, "politic", "government")) {
+            return "Politics";
+        }
+        if (containsAny(explicit, "econom", "business", "finance")) {
+            return "Economy";
+        }
+        if (containsAny(explicit, "tech", "technology", "science", "digital")) {
+            return "Technology";
+        }
+        if (containsAny(explicit, "elect", "vote", "campaign")) {
+            return "Elections";
+        }
+
+        String searchable = (firstNonBlank(source, "") + " "
+                + firstNonBlank(title, "") + " "
+                + firstNonBlank(description, "")).toLowerCase(Locale.ROOT);
+
+        if (containsAny(searchable, "election", "vote", "voting", "candidate", "campaign", "ballot", "poll")) {
+            return "Elections";
+        }
+        if (containsAny(searchable, "technology", "tech", "cyber", "digital", "software", "ai", "data", "platform")) {
+            return "Technology";
+        }
+        if (containsAny(searchable, "economy", "economic", "business", "market", "finance", "inflation", "trade", "gdp")) {
+            return "Economy";
+        }
+        if (containsAny(searchable, "politic", "government", "senate", "congress", "policy", "commission", "legislation")) {
+            return "Politics";
+        }
+
+        return "Top Stories";
+    }
+
+    /**
+     * Determines whether normalized text contains any keyword.
+     *
+     * @param searchable normalized searchable text
+     * @param keywords keyword list
+     * @return true when any keyword is present
+     */
+    private boolean containsAny(String searchable, String... keywords) {
+        for (String keyword : keywords) {
+            if (searchable.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String extractImageUrl(Element itemElement, String rawDescription, String articleUrl) {
@@ -322,19 +433,19 @@ public class ExternalNewsService {
                     .timeout(8000)
                     .get();
 
-            String openGraph = firstNonBlank(
-                    doc.select("meta[property=og:image]").attr("abs:content"),
-                    doc.select("meta[name=twitter:image]").attr("abs:content"),
-                    doc.select("link[rel=image_src]").attr("abs:href")
-            );
-
-            if (!openGraph.isBlank()) {
-                return openGraph;
-            }
-
-            return doc.select("img[src]").stream()
+                List<String> candidates = new ArrayList<>();
+                candidates.add(doc.select("meta[property=og:image]").attr("abs:content"));
+                candidates.add(doc.select("meta[name=twitter:image]").attr("abs:content"));
+                candidates.add(doc.select("link[rel=image_src]").attr("abs:href"));
+                doc.select("img[src]").stream()
+                    .limit(10)
                     .map(element -> element.attr("abs:src"))
-                    .filter(url -> url != null && !url.isBlank())
+                    .forEach(candidates::add);
+
+                return candidates.stream()
+                    .map(this::normalizeImageUrl)
+                    .filter(value -> !value.isBlank())
+                    .sorted(Comparator.comparingInt(this::imageQualityScore).reversed())
                     .findFirst()
                     .orElse("");
         } catch (Exception ignored) {
@@ -403,9 +514,123 @@ public class ExternalNewsService {
             return "";
         }
 
+        if (looksLikeLowQualityImage(normalized)) {
+            return "";
+        }
+
         normalized = WIDTH_PARAM_PATTERN.matcher(normalized).replaceAll("$11600");
         normalized = QUALITY_PARAM_PATTERN.matcher(normalized).replaceAll("$180");
         return normalized;
+    }
+
+    /**
+     * Returns candidate paragraph elements from common article containers.
+     *
+     * @param doc parsed article document
+     * @return candidate paragraph elements
+     */
+    private Elements extractCandidateParagraphs(Document doc) {
+        Elements articleParagraphs = doc.select("article p, main article p, [itemprop=articleBody] p, .article-body p, .story-body p");
+        if (!articleParagraphs.isEmpty()) {
+            return articleParagraphs;
+        }
+
+        Elements mainParagraphs = doc.select("main p, .content p, .post-content p, .entry-content p");
+        if (!mainParagraphs.isEmpty()) {
+            return mainParagraphs;
+        }
+
+        return doc.select("p");
+    }
+
+    /**
+     * Validates whether paragraph text likely belongs to article body.
+     *
+     * @param text paragraph text
+     * @return true if paragraph appears relevant
+     */
+    private boolean isRelevantParagraph(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+
+        String normalized = text.trim();
+        if (normalized.length() < 70) {
+            return false;
+        }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.contains("subscribe") || lower.contains("cookie") || lower.contains("advertisement") || lower.contains("sign up")) {
+            return false;
+        }
+
+        return normalized.chars().filter(Character::isLetter).count() >= 40;
+    }
+
+    /**
+     * Evaluates whether image URL likely points to low-quality or thumbnail asset.
+     *
+     * @param imageUrl normalized image URL
+     * @return true when URL likely points to low-quality asset
+     */
+    private boolean looksLikeLowQualityImage(String imageUrl) {
+        String lower = imageUrl.toLowerCase(Locale.ROOT);
+        if (lower.contains("thumbnail") || lower.contains("thumb") || lower.contains("icon") || lower.contains("sprite") || lower.contains("logo-")) {
+            return true;
+        }
+
+        Matcher sizeMatcher = SMALL_DIMENSION_PATTERN.matcher(lower);
+        if (sizeMatcher.find()) {
+            int width = Integer.parseInt(sizeMatcher.group(1));
+            int height = Integer.parseInt(sizeMatcher.group(2));
+            return width < 280 || height < 180;
+        }
+
+        return false;
+    }
+
+    /**
+     * Produces a score favoring high-resolution and full-size image URLs.
+     *
+     * @param imageUrl candidate image URL
+     * @return relative quality score
+     */
+    private int imageQualityScore(String imageUrl) {
+        int score = 0;
+        String lower = imageUrl.toLowerCase(Locale.ROOT);
+        if (lower.contains("1600") || lower.contains("1400") || lower.contains("1200")) {
+            score += 4;
+        }
+        if (lower.contains("q=80") || lower.contains("quality=80")) {
+            score += 2;
+        }
+        if (lower.contains("hero") || lower.contains("full")) {
+            score += 2;
+        }
+        return score;
+    }
+
+    /**
+     * Resolves a publisher avatar/logo URL from source domain.
+     *
+     * @param articleUrl article source URL
+     * @return publisher image URL or empty when unavailable
+     */
+    private String resolvePublisherImage(String articleUrl) {
+        if (articleUrl == null || articleUrl.isBlank()) {
+            return "";
+        }
+
+        try {
+            URL parsed = URI.create(articleUrl).toURL();
+            String host = parsed.getHost();
+            if (host == null || host.isBlank()) {
+                return "";
+            }
+            return "https://www.google.com/s2/favicons?domain=" + URLEncoder.encode(host, StandardCharsets.UTF_8) + "&sz=128";
+        } catch (MalformedURLException | IllegalArgumentException ignored) {
+            return "";
+        }
     }
 
     private String cleanSummary(String description) {
@@ -481,6 +706,27 @@ public class ExternalNewsService {
             return "national|" + country.trim().toLowerCase(Locale.ROOT);
         }
         return requestedLocation.trim().toLowerCase(Locale.ROOT) + "|" + country.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Clears cached feeds for all countries except the active one.
+     *
+     * @param requestedCountry selected country context
+     */
+    private void invalidateCacheForCountry(String requestedCountry) {
+        String normalizedCountry = (requestedCountry == null || requestedCountry.isBlank())
+                ? "philippines"
+                : requestedCountry.trim().toLowerCase(Locale.ROOT);
+
+        cacheByLocation.entrySet().removeIf((entry) -> {
+            String key = entry.getKey();
+            int separator = key.lastIndexOf('|');
+            if (separator < 0 || separator + 1 >= key.length()) {
+                return false;
+            }
+            String countrySegment = key.substring(separator + 1).trim().toLowerCase(Locale.ROOT);
+            return !countrySegment.equals(normalizedCountry);
+        });
     }
 
     private boolean isExpired(Instant cachedAt) {
