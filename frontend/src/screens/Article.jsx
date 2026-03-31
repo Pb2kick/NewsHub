@@ -4,7 +4,6 @@ import { ArrowLeft } from 'lucide-react';
 import ArticleContentBlock from '../components/article/ArticleContentBlock';
 import ArticleHeaderBlock from '../components/article/ArticleHeaderBlock';
 import ArticleRelatedSection from '../components/article/ArticleRelatedSection';
-import HomeFooter from '../components/home/HomeFooter';
 import { useArticleDetails } from '../hooks/useArticleDetails';
 
 /**
@@ -21,48 +20,38 @@ export default function Article() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <div className="flex-1 grid place-items-center">
-          <div className="text-slate-600 text-sm">Loading article...</div>
-        </div>
-        <HomeFooter />
+      <div className="grid place-items-center py-16">
+        <div className="text-slate-600 text-sm">Loading article...</div>
       </div>
     );
   }
 
   if (!displayArticle) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-          <Link to="/home" className="inline-flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-6 text-sm font-medium">
-            <ArrowLeft className="w-4 h-4" />
-            Back to News
-          </Link>
-          <div className="max-w-4xl rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-600">
-            No article is available for your current location yet. Please change location or try again shortly.
-          </div>
-        </main>
-        <HomeFooter />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         <Link to="/home" className="inline-flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-6 text-sm font-medium">
           <ArrowLeft className="w-4 h-4" />
           Back to News
         </Link>
-
-        <div className="max-w-4xl">
-          <ArticleHeaderBlock article={displayArticle} />
-          <ArticleContentBlock excerpt={displayArticle.excerpt} paragraphs={articleParagraphs} sourceUrl={originalSourceUrl} />
-          <ArticleRelatedSection relatedArticles={relatedArticles} />
+        <div className="max-w-4xl rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-600">
+          No article is available for your current location yet. Please change location or try again shortly.
         </div>
       </main>
+    );
+  }
 
-      <HomeFooter />
-    </div>
+  return (
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <Link to="/home" className="inline-flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors mb-6 text-sm font-medium">
+        <ArrowLeft className="w-4 h-4" />
+        Back to News
+      </Link>
+
+      <div className="max-w-4xl">
+        <ArticleHeaderBlock article={displayArticle} />
+        <ArticleContentBlock excerpt={displayArticle.excerpt} paragraphs={articleParagraphs} sourceUrl={originalSourceUrl} />
+        <ArticleRelatedSection relatedArticles={relatedArticles} />
+      </div>
+    </main>
   );
 }
