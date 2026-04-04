@@ -25,10 +25,12 @@ export default function HomeHeader(props) {
     profilePhotoUrl,
     profileInitials,
     onLogout,
+    isAdminViewMode,
   } = props;
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+      {isAdminViewMode ? <div className="h-1 w-full bg-amber-500" aria-hidden="true" /> : null}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="h-16 flex items-center justify-between gap-3 sm:gap-6">
           <Link to="/home" className="flex items-center gap-2 shrink-0">
@@ -70,6 +72,15 @@ export default function HomeHeader(props) {
 
               {isProfileMenuOpen && (
                 <div className="absolute right-0 mt-2 w-40 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-50">
+                  {isAdminViewMode ? (
+                    <Link
+                      to="/admin"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="block px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+                    >
+                      Dashboard
+                    </Link>
+                  ) : null}
                   <Link
                     to="/profile"
                     onClick={() => setIsProfileMenuOpen(false)}

@@ -1,3 +1,11 @@
+# NewsHub
+
+## Architecture
+
+This repository follows a modular monolith with feature-based packaging.
+
+- Architecture guide: [docs/architecture/modular-monolith-vertical-slice.md](docs/architecture/modular-monolith-vertical-slice.md)
+
 
 # NewsHub Frontend
 
