@@ -1,100 +1,162 @@
 # NewsHub
 
-## Architecture
+NewsHub is a full-stack civic news and election platform with authentication, location-aware news feeds, voting flow screens, and an admin dashboard.
 
-This repository follows a modular monolith with feature-based packaging.
+The repository is organized using a vertical slicing approach:
 
-- Architecture guide: [docs/architecture/modular-monolith-vertical-slice.md](docs/architecture/modular-monolith-vertical-slice.md)
+- Backend uses a modular monolith with feature-first packages.
+- Frontend uses feature-first folders under src/features.
 
+## Core Features
 
-# NewsHub Frontend
+- User authentication with Supabase (register, login, confirmed email flow)
+- Profile management (account details and session actions)
+- Location-aware news feed and article details
+- Election browsing, candidate pages, vote verification, and vote flow screens
+- Admin area with dashboard and management views for verifications, elections, candidates, and news
 
-This is the React frontend for the NewsHub project. It provides user authentication and a platform for news aggregation and sharing, powered by Supabase.
+## Architecture Overview
 
-## Features
+### Backend (Spring Boot)
 
-- User registration and login (Supabase authentication)
-- Clean, modern UI
-- Easy integration with backend
-- Modular code structure for easy development
+Feature-first package structure:
 
-## Getting Started
+- backend/src/main/java/com/newshub/backend/news/api
+- backend/src/main/java/com/newshub/backend/news/application
+- backend/src/main/java/com/newshub/backend/news/domain
+- backend/src/main/java/com/newshub/backend/news/infrastructure
+- backend/src/main/java/com/newshub/backend/news/bootstrap
+- backend/src/main/java/com/newshub/backend/platform/config
 
-1. Clone the repository:
-	```bash
-	git clone https://github.com/<your-username>/NewsHub.git
-	cd NewsHub/frontend
-	```
-2. Install dependencies:
-	```bash
-	npm install
-	```
-3. Set up environment variables:
-	- Create a `.env` file in the `frontend` directory.
-	- Add your Supabase credentials:
-	  ```
-	  REACT_APP_SUPABASE_URL=your_supabase_url
-	  REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
-	  ```
-4. Start the development server:
-	```bash
-	npm start
-	```
-	The app will be available at [http://localhost:3000](http://localhost:3000).
+This keeps API, business logic, persistence, and bootstrapping grouped by feature instead of spreading classes by global technical folders.
 
-## Safe Development Guidelines
+### Frontend (React)
 
-- Always create a new branch for your feature or bugfix:
-  ```bash
-  git checkout -b feature/your-feature-name
-  ```
-- Commit changes with clear messages.
-- Pull the latest changes from `main` before starting work:
-  ```bash
-  git pull origin main
-  ```
-- Push your branch and open a pull request for review.
-- Avoid direct commits to `main` unless necessary.
-- Do not share `.env` or sensitive credentials in the repository.
+Feature-first structure under src/features:
 
-## Contributing
+- frontend/src/features/auth
+- frontend/src/features/news
+- frontend/src/features/elections
+- frontend/src/features/profile
+- frontend/src/features/admin
+- frontend/src/features/shared
 
-1. Fork the repository if you are not a direct collaborator.
-2. Follow the safe development guidelines above.
-3. Review and test your code before submitting a pull request.
+Each feature owns its screens, hooks, services, and local components where applicable.
 
-## Project Structure
+## Tech Stack
 
-- `src/` - Main source code
-- `public/` - Static assets
-- `.env` - Environment variables (not committed)
+### Frontend
 
-## Database (ERD-aligned)
+- React 19
+- React Router 6
+- React Hook Form + Zod
+- Supabase JS client
+- Tailwind CSS
 
-- ERD SQL migration file: [database/migrations/001_erd_users_verifications.sql](database/migrations/001_erd_users_verifications.sql)
-- Apply it in Supabase:
-	1. Open Supabase Dashboard → SQL Editor.
-	2. Paste the contents of `database/migrations/001_erd_users_verifications.sql`.
-	3. Run the script once to create `users` and `verifications` with constraints.
+### Backend
 
-This migration enforces:
-- Unique email in `users` (case-insensitive)
-- One verification per user (`verifications.user_id` is unique)
-- `status` enum-like constraint (`PENDING | APPROVED | REJECTED`)
-- Admin reviewer foreign key (`reviewed_by_admin_id` → `users.id`)
+- Java 17+
+- Spring Boot 4 (Web MVC, Data JPA)
+- PostgreSQL
+- Jsoup
 
-It also adds Supabase integration behavior:
-- New `auth.users` signups are mirrored into `public.users` via DB trigger.
-- Email/password/name updates in `auth.users` are synced to `public.users`.
-- A secure RPC `public.submit_verification(...)` is added for authenticated users.
+## Repository Structure
 
-Example RPC call from frontend after login:
+- backend: Spring Boot API and business modules
+- frontend: React application
 
-```js
-const { data, error } = await supabase.rpc('submit_verification', {
-	p_full_name: fullName,
-	p_address: address,
-	p_birthdate: birthdate,
-	p_photo_id_url: photoIdUrl,
-});
-```
+## Prerequisites
+
+- Java 17 or newer
+- Node.js 18 or newer
+- npm
+- PostgreSQL (or Supabase Postgres)
+
+## Environment Configuration
+
+### Frontend
+
+Create frontend/.env with:
+
+- REACT_APP_SUPABASE_URL=your_supabase_project_url
+- REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+### Backend
+
+Backend configuration is read from backend/src/main/resources/application.properties.
+
+Recommended for team/project submission use:
+
+- Do not commit real database credentials.
+- Prefer environment variable placeholders in application.properties for datasource values.
+
+## How To Run
+
+### 1) Run Backend
+
+Windows:
+
+- cd backend
+- .\mvnw.cmd spring-boot:run
+
+Mac/Linux:
+
+- cd backend
+- ./mvnw spring-boot:run
+
+Default API base URL:
+
+- http://localhost:8080
+
+### 2) Run Frontend
+
+- cd frontend
+- npm install
+- npm start
+
+Default app URL:
+
+- http://localhost:3000
+
+If port 3000 is in use, React will offer the next available port (for example 3001).
+
+## Testing And Validation
+
+### Backend tests
+
+Windows:
+
+- cd backend
+- .\mvnw.cmd test
+
+Mac/Linux:
+
+- cd backend
+- ./mvnw test
+
+### Frontend tests
+
+- cd frontend
+- npm test -- --watchAll=false
+
+### Frontend production build
+
+- cd frontend
+- npm run build
+
+## Main API Endpoints
+
+- GET /api/news
+- GET /api/news/content?url=<article_url>
+
+## Notes For Deployment
+
+- Frontend uses BrowserRouter, so production hosting should rewrite unknown routes to index.html.
+- Configure CORS origins in backend platform config for your deployed frontend domain.
+
+## Contribution Workflow
+
+- Create a feature branch
+- Commit with clear messages
+- Pull latest main before opening pull request
+- Run tests/build before submitting
