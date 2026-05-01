@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import HomeFooter from '../../news/components/HomeFooter';
 import HomeHeader from '../../news/components/HomeHeader';
 import { useLocationNews } from '../../news/hooks/useLocationNews';
@@ -14,11 +14,14 @@ import { supabase } from '../services/supabaseClient';
 
 /**
  * Shared authenticated page wrapper with consistent header and footer.
+ * Owns the global search state so the search bar works on every screen
+ * that uses this shell (Elections, Article, Profile, etc.).
  * @param {{ children: React.ReactNode, activeCategory?: string }} props
  * @returns {JSX.Element}
  */
 export default function AuthenticatedPageShell({ children, activeCategory = NEWS_CATEGORY_TOP_STORIES }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [selectedNewsCategory, setSelectedNewsCategory] = useState(activeCategory);
   const {
     selectedLocation,
@@ -36,6 +39,15 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     profileInitials,
   } = useProfileMenu();
   const { isAdminViewMode } = useAdminViewMode();
+
+  // Search state — shared between desktop and mobile inputs.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Close the dropdown whenever the user navigates to another route.
+  useEffect(() => {
+    setIsSearchOpen(false);
+  }, [location.pathname]);
 
   /** Handles top category clicks from non-home pages. */
   const handleSelectNewsCategory = (nextCategory) => {
@@ -73,6 +85,10 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
         profileInitials={profileInitials}
         onLogout={handleLogout}
         isAdminViewMode={isAdminViewMode}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        isSearchOpen={isSearchOpen}
+        setIsSearchOpen={setIsSearchOpen}
       />
 
       <main className="flex-1 w-full">{children}</main>
@@ -81,3 +97,4 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     </div>
   );
 }
+
