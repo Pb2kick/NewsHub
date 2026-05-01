@@ -180,7 +180,7 @@ export default function GlobalSearchDropdown({ query, onClose }) {
                   type="button"
                   role="option"
                   aria-selected="false"
-                  onClick={() => navigateTo(`/elections/${candidate.electionId}`)}
+                  onClick={() => navigateTo(`/elections/${candidate.electionId}/candidates/${candidate.id}`)}
                   className="w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors flex flex-col gap-0.5"
                 >
                   <span className="text-sm font-medium text-slate-800 leading-snug">

@@ -45,6 +45,15 @@ export function useArticleDetails({ id, routeArticle }) {
       setArticle(null);
       setResolvedContent('');
 
+      // If the article was passed via navigation state (e.g. from GlobalSearchDropdown),
+      // use it directly without hitting the location feed. The location feed is scoped
+      // to the current region and may not contain search results from other regions.
+      if (routeArticle) {
+        setArticle(routeArticle);
+        setIsLoading(false);
+        return;
+      }
+
       const locationContext = getPersistedNewsLocationContext();
 
       try {
