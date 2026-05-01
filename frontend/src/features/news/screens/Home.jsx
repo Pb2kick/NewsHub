@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ELECTIONS } from '../../elections/data/mockData';
 import { supabase } from '../../shared/services/supabaseClient';
 import HomeFooter from '../components/HomeFooter';
@@ -28,10 +28,13 @@ function hasImage(imageUrl) {
 
 /**
  * Home screen for location-aware news and election widgets.
+ * Owns the global search state (searchQuery, isSearchOpen) and passes it down
+ * to HomeHeader so both desktop and mobile search bars share the same value.
  * @returns {JSX.Element}
  */
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     selectedLocation,
     locationLabel,
@@ -55,6 +58,15 @@ export default function Home() {
     profileInitials,
   } = useProfileMenu();
   const { isAdminViewMode } = useAdminViewMode();
+
+  // Search state owned here so both desktop and mobile inputs stay in sync.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Close the search dropdown whenever the user navigates to another route.
+  useEffect(() => {
+    setIsSearchOpen(false);
+  }, [location.pathname]);
 
   const taggedArticles = useMemo(() => tagNewsArticlesByCategory(newsArticles), [newsArticles]);
   const filteredArticles = useMemo(
@@ -102,6 +114,10 @@ export default function Home() {
         profileInitials={profileInitials}
         onLogout={handleLogout}
         isAdminViewMode={isAdminViewMode}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        isSearchOpen={isSearchOpen}
+        setIsSearchOpen={setIsSearchOpen}
       />
 
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">
@@ -128,3 +144,4 @@ export default function Home() {
     </div>
   );
 }
+

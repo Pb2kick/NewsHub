@@ -64,7 +64,25 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
         """)
     List<NewsArticle> findNationalAndRegion(@Param("nationalCountry") String nationalCountry, @Param("country") String country, @Param("region") String region);
 
+    /**
+     * Returns articles whose title, summary, or content contain the keyword phrase,
+     * ordered by most recent first and capped at 8 results.
+     *
+     * @param keyword lower-cased search phrase wrapped with % wildcards by the caller
+     * @return matching news entities
+     */
+    @Query("""
+        select n from NewsArticle n
+        where lower(n.title)   like concat('%', lower(:keyword), '%')
+           or lower(n.summary) like concat('%', lower(:keyword), '%')
+           or lower(n.content) like concat('%', lower(:keyword), '%')
+        order by n.publishedAt desc, n.id desc
+        """)
+    List<NewsArticle> searchByKeyword(@Param("keyword") String keyword,
+                                      org.springframework.data.domain.Pageable pageable);
+
     boolean existsByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
 
     Optional<NewsArticle> findFirstByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
 }
+

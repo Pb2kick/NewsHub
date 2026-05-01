@@ -3,6 +3,7 @@ package com.newshub.backend.news.application;
 import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -82,6 +83,24 @@ public class NewsService {
         return newsArticleRepository.findNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation)
                 .stream()
             .filter(article -> isCurrentYear(article.getPublishedAt()))
+                .map(this::toFeedItem)
+                .toList();
+    }
+
+    /**
+     * Searches persisted articles whose title, summary, or content contain the
+     * given keyword phrase. Returns at most 8 results ordered by publish date.
+     *
+     * @param query raw search query from the user
+     * @return list of matching feed items, empty when query is blank
+     */
+    public List<NewsFeedItem> searchNews(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        return newsArticleRepository
+                .searchByKeyword(query.trim(), PageRequest.of(0, 8))
+                .stream()
                 .map(this::toFeedItem)
                 .toList();
     }

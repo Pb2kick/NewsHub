@@ -84,3 +84,18 @@ export async function fetchArticleContent({ url, signal } = {}) {
     extracted: Boolean(payload?.extracted),
   };
 }
+/**
+ * Searches persisted articles by keyword against the backend full-text index.
+ * @param {{ query?: string, signal?: AbortSignal }} options
+ * @returns {Promise<Array>}
+ */
+export async function searchNews({ query = '', signal } = {}) {
+  const params = new URLSearchParams({ q: query });
+  const response = await fetch(
+    `${NEWS_API_BASE_URL}/api/news/search?${params.toString()}`,
+    { signal }
+  );
+  if (!response.ok) return [];
+  const payload = await response.json();
+  return Array.isArray(payload) ? payload : [];
+}

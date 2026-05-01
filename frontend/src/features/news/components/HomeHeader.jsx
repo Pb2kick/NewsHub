@@ -2,9 +2,17 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
+import GlobalSearchDropdown from './GlobalSearchDropdown';
 
 /**
  * Renders the fixed top header and category navigation.
+ *
+ * New search-related props (all others are unchanged):
+ *  - searchQuery {string}              - Controlled value for both search inputs.
+ *  - setSearchQuery {Function}         - Setter passed down from Home.jsx.
+ *  - isSearchOpen {boolean}            - Whether the search dropdown is visible.
+ *  - setIsSearchOpen {Function}        - Setter passed down from Home.jsx.
+ *
  * @param {object} props
  * @returns {JSX.Element}
  */
@@ -26,7 +34,22 @@ export default function HomeHeader(props) {
     profileInitials,
     onLogout,
     isAdminViewMode,
+    // Search props
+    searchQuery = '',
+    setSearchQuery,
+    isSearchOpen = false,
+    setIsSearchOpen,
   } = props;
+
+  function handleSearchChange(event) {
+    const value = event.target.value;
+    if (setSearchQuery) setSearchQuery(value);
+    if (setIsSearchOpen) setIsSearchOpen(value.trim().length >= 2);
+  }
+
+  function handleCloseDropdown() {
+    if (setIsSearchOpen) setIsSearchOpen(false);
+  }
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
@@ -38,13 +61,27 @@ export default function HomeHeader(props) {
             <span className="text-xl font-extrabold text-slate-900 tracking-tight">NewsHub</span>
           </Link>
 
+          {/* Desktop search bar */}
           <div className="hidden md:flex flex-1 max-w-xl relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
+              id="global-search-desktop"
               type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              onFocus={() => {
+                if (searchQuery.trim().length >= 2 && setIsSearchOpen) setIsSearchOpen(true);
+              }}
               placeholder="Search news, elections, candidates..."
+              autoComplete="off"
               className="w-full h-11 rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
+            {isSearchOpen && (
+              <GlobalSearchDropdown
+                query={searchQuery}
+                onClose={handleCloseDropdown}
+              />
+            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
@@ -101,14 +138,28 @@ export default function HomeHeader(props) {
           </div>
         </div>
 
+        {/* Mobile search bar */}
         <div className="md:hidden pb-3">
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
+              id="global-search-mobile"
               type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              onFocus={() => {
+                if (searchQuery.trim().length >= 2 && setIsSearchOpen) setIsSearchOpen(true);
+              }}
               placeholder="Search news..."
+              autoComplete="off"
               className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
+            {isSearchOpen && (
+              <GlobalSearchDropdown
+                query={searchQuery}
+                onClose={handleCloseDropdown}
+              />
+            )}
           </div>
         </div>
 
@@ -137,3 +188,4 @@ export default function HomeHeader(props) {
     </header>
   );
 }
+

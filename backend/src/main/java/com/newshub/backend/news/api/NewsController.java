@@ -34,7 +34,7 @@ public class NewsController {
      * @return filtered feed items
      */
     @GetMapping
-        public List<NewsFeedItem> getNews(
+    public List<NewsFeedItem> getNews(
             @RequestParam(required = false) String location,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
@@ -42,6 +42,22 @@ public class NewsController {
             @RequestParam(required = false) String area
     ) {
         return newsService.getNews(location, lat, lng, country, area);
+    }
+
+    /**
+     * Full-text search across persisted articles by keyword.
+     * Returns an empty JSON array when q is blank so the frontend can always
+     * safely parse the response without special-casing error status codes.
+     *
+     * @param q raw search query string
+     * @return up to 8 matching feed items ordered by publish date descending
+     */
+    @GetMapping("/search")
+    public List<NewsFeedItem> searchNews(@RequestParam(required = false, defaultValue = "") String q) {
+        if (q == null || q.isBlank()) {
+            return List.of();
+        }
+        return newsService.searchNews(q);
     }
 
     /**
@@ -56,3 +72,4 @@ public class NewsController {
         return new ArticleContentResponse(extractedContent, !extractedContent.isBlank());
     }
 }
+
