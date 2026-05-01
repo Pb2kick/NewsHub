@@ -15,7 +15,7 @@ const STATUS_COLORS = {
  * Closes when:
  *  - The user clicks outside the panel (document mousedown listener).
  *  - The user presses the Escape key.
- *  - The user selects any result (navigation fires, then onClose is called).
+ *  - The user selects any result (onClose is called before navigation).
  *
  * @param {{ query: string, onClose: () => void }} props
  * @returns {JSX.Element | null}
@@ -53,8 +53,8 @@ export default function GlobalSearchDropdown({ query, onClose }) {
   if (!query || query.trim().length < 2) return null;
 
   function navigateTo(path, state) {
-    navigate(path, state ? { state } : undefined);
     onClose();
+    navigate(path, state ? { state } : undefined);
   }
 
   function truncate(text, maxLength) {

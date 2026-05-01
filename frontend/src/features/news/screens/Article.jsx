@@ -56,7 +56,7 @@ export default function Article() {
 
         <div className="max-w-4xl">
           <ArticleHeaderBlock article={displayArticle} />
-          <ArticleContentBlock excerpt={displayArticle.excerpt} paragraphs={articleParagraphs} sourceUrl={originalSourceUrl} />
+          <ArticleContentBlock articleId={displayArticle.id} excerpt={displayArticle.excerpt} paragraphs={articleParagraphs} sourceUrl={originalSourceUrl} />
           <ArticleRelatedSection relatedArticles={relatedArticles} />
         </div>
       </div>

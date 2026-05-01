@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
@@ -48,9 +48,10 @@ export default function HomeHeader(props) {
     if (setIsSearchOpen) setIsSearchOpen(value.trim().length >= 2);
   }
 
-  function handleCloseDropdown() {
+  const handleCloseDropdown = useCallback(() => {
     if (setIsSearchOpen) setIsSearchOpen(false);
-  }
+    if (setSearchQuery) setSearchQuery('');
+  }, [setIsSearchOpen, setSearchQuery]);
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
