@@ -205,5 +205,8 @@ export function useLocationNews() {
     useCurrentUserLocation,
     userLocationDisplayLabel: userLocationDetails.label,
     isUsingCurrentLocation,
+    // Exposed so consumers can build a locationContext for search filtering.
+    area: userLocationDetails.area,
+    country: userLocationDetails.country,
   };
 }

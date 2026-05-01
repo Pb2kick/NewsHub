@@ -45,19 +45,33 @@ public class NewsController {
     }
 
     /**
-     * Full-text search across persisted articles by keyword.
+     * Full-text search across persisted articles by keyword, scoped to the
+     * user's current location context.
+     *
+     * Location params mirror those accepted by GET /api/news so the search
+     * results respect whichever scope (Local / National / International) the
+     * user has selected in the UI.
+     *
      * Returns an empty JSON array when q is blank so the frontend can always
      * safely parse the response without special-casing error status codes.
      *
-     * @param q raw search query string
+     * @param q        raw search query string
+     * @param location scope mode: Local, National, or International
+     * @param area     resolved area/region for the Local scope
+     * @param country  resolved country for the National scope
      * @return up to 8 matching feed items ordered by publish date descending
      */
     @GetMapping("/search")
-    public List<NewsFeedItem> searchNews(@RequestParam(required = false, defaultValue = "") String q) {
+    public List<NewsFeedItem> searchNews(
+            @RequestParam(required = false, defaultValue = "") String q,
+            @RequestParam(required = false) String location,
+            @RequestParam(required = false) String area,
+            @RequestParam(required = false) String country
+    ) {
         if (q == null || q.isBlank()) {
             return List.of();
         }
-        return newsService.searchNews(q);
+        return newsService.searchNews(q, location, area, country);
     }
 
     /**
@@ -72,4 +86,3 @@ public class NewsController {
         return new ArticleContentResponse(extractedContent, !extractedContent.isBlank());
     }
 }
-

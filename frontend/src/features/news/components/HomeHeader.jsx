@@ -8,11 +8,14 @@ import newshubLogo from '../../../assets/newshub-logo.png';
 /**
  * Renders the fixed top header and category navigation.
  *
- * New search-related props (all others are unchanged):
+ * Search-related props:
  *  - searchQuery {string}              - Controlled value for both search inputs.
- *  - setSearchQuery {Function}         - Setter passed down from Home.jsx.
+ *  - setSearchQuery {Function}         - Setter passed down from parent.
  *  - isSearchOpen {boolean}            - Whether the search dropdown is visible.
- *  - setIsSearchOpen {Function}        - Setter passed down from Home.jsx.
+ *  - setIsSearchOpen {Function}        - Setter passed down from parent.
+ *  - locationContext {object}          - { selectedLocation, area, country } used
+ *                                        to scope search results to the current
+ *                                        user location.
  *
  * @param {object} props
  * @returns {JSX.Element}
@@ -40,6 +43,8 @@ export default function HomeHeader(props) {
     setSearchQuery,
     isSearchOpen = false,
     setIsSearchOpen,
+    // Location context forwarded to GlobalSearchDropdown for result scoping
+    locationContext,
   } = props;
 
   function handleSearchChange(event) {
@@ -82,6 +87,7 @@ export default function HomeHeader(props) {
               <GlobalSearchDropdown
                 query={searchQuery}
                 onClose={handleCloseDropdown}
+                locationContext={locationContext}
               />
             )}
           </div>
@@ -160,6 +166,7 @@ export default function HomeHeader(props) {
               <GlobalSearchDropdown
                 query={searchQuery}
                 onClose={handleCloseDropdown}
+                locationContext={locationContext}
               />
             )}
           </div>
@@ -190,4 +197,3 @@ export default function HomeHeader(props) {
     </header>
   );
 }
-

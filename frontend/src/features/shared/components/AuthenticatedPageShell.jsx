@@ -30,6 +30,8 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     useCurrentUserLocation,
     userLocationDisplayLabel,
     isUsingCurrentLocation,
+    area,
+    country,
   } = useLocationNews();
   const {
     isProfileMenuOpen,
@@ -89,6 +91,7 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
         setSearchQuery={setSearchQuery}
         isSearchOpen={isSearchOpen}
         setIsSearchOpen={setIsSearchOpen}
+        locationContext={{ selectedLocation, area, country }}
       />
 
       <main className="flex-1 w-full">{children}</main>

@@ -89,17 +89,58 @@ public class NewsService {
 
     /**
      * Searches persisted articles whose title, summary, or content contain the
-     * given keyword phrase. Returns at most 8 results ordered by publish date.
+     * given keyword phrase, optionally scoped to the user's current location.
      *
-     * @param query raw search query from the user
+     * Dispatches to the appropriate repository query based on the location mode:
+     *  - Local       → searchByKeywordAndArea   (matches region or country)
+     *  - National    → searchByKeywordAndNational (matches domestic country / National tag)
+     *  - International → searchByKeywordAndInternational (excludes domestic country)
+     *  - null / blank → searchByKeyword (global, unscoped)
+     *
+     * Returns at most 8 results ordered by publish date.
+     *
+     * @param query    raw search query from the user
+     * @param location scope mode: Local, National, or International
+     * @param area     resolved area for Local scope (e.g. "New Orleans")
+     * @param country  resolved country for National scope (e.g. "United States")
      * @return list of matching feed items, empty when query is blank
      */
-    public List<NewsFeedItem> searchNews(String query) {
+    public List<NewsFeedItem> searchNews(String query, String location, String area, String country) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
+
+        String keyword = query.trim();
+        PageRequest page = PageRequest.of(0, 8);
+        String resolvedCountry = normalizeCountry(country);
+
+        if (LOCATION_LOCAL.equalsIgnoreCase(location) && area != null && !area.isBlank()) {
+            return newsArticleRepository
+                    .searchByKeywordAndArea(keyword, area.trim(), resolvedCountry, page)
+                    .stream()
+                    .map(this::toFeedItem)
+                    .toList();
+        }
+
+        if (LOCATION_NATIONAL.equalsIgnoreCase(location)) {
+            return newsArticleRepository
+                    .searchByKeywordAndNational(keyword, resolvedCountry, LOCATION_NATIONAL, page)
+                    .stream()
+                    .map(this::toFeedItem)
+                    .toList();
+        }
+
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
+            return newsArticleRepository
+                    .searchByKeywordAndInternational(keyword, LOCATION_NATIONAL, resolvedCountry, page)
+                    .stream()
+                    .map(this::toFeedItem)
+                    .toList();
+        }
+
+        // No location context provided — fall back to global keyword search.
         return newsArticleRepository
-                .searchByKeyword(query.trim(), PageRequest.of(0, 8))
+                .searchByKeyword(keyword, page)
                 .stream()
                 .map(this::toFeedItem)
                 .toList();

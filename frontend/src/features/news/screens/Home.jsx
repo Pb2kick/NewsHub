@@ -48,6 +48,8 @@ export default function Home() {
     useCurrentUserLocation,
     userLocationDisplayLabel,
     isUsingCurrentLocation,
+    area,
+    country,
   } = useLocationNews();
   const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
   const {
@@ -118,6 +120,7 @@ export default function Home() {
         setSearchQuery={setSearchQuery}
         isSearchOpen={isSearchOpen}
         setIsSearchOpen={setIsSearchOpen}
+        locationContext={{ selectedLocation, area, country }}
       />
 
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">

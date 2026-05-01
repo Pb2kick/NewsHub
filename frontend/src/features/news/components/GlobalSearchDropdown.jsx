@@ -13,29 +13,34 @@ const STATUS_COLORS = {
  * Dropdown panel that renders grouped search results beneath a search input.
  *
  * Closes when:
- *  - The user clicks outside the panel (document mousedown listener).
+ *  - The user clicks outside the panel (document click listener).
  *  - The user presses the Escape key.
  *  - The user selects any result (onClose is called before navigation).
  *
- * @param {{ query: string, onClose: () => void }} props
+ * FIX: We listen for 'click' (not 'mousedown') on the document for outside-close
+ * detection, and we call e.stopPropagation() on the panel div so that clicks
+ * INSIDE the panel never reach the document listener. This prevents the
+ * mousedown→re-render→button-unmounted race that was swallowing navigation.
+ *
+ * @param {{ query: string, onClose: () => void, locationContext: object }} props
  * @returns {JSX.Element | null}
  */
-export default function GlobalSearchDropdown({ query, onClose }) {
+export default function GlobalSearchDropdown({ query, onClose, locationContext }) {
   const navigate = useNavigate();
   const panelRef = useRef(null);
 
   const { articleResults, electionResults, candidateResults, isSearching, hasResults } =
-    useGlobalSearch(query);
+    useGlobalSearch(query, locationContext);
 
-  // Close on outside click.
+  // Close on outside CLICK (not mousedown — see header comment above).
   useEffect(() => {
-    function handleMouseDown(event) {
+    function handleOutsideClick(event) {
       if (panelRef.current && !panelRef.current.contains(event.target)) {
         onClose();
       }
     }
-    document.addEventListener('mousedown', handleMouseDown);
-    return () => document.removeEventListener('mousedown', handleMouseDown);
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
   }, [onClose]);
 
   // Close on Escape key.
@@ -52,6 +57,15 @@ export default function GlobalSearchDropdown({ query, onClose }) {
   // Do not render for very short queries.
   if (!query || query.trim().length < 2) return null;
 
+  /**
+   * Stops the click from bubbling up to the document listener so that
+   * clicking INSIDE the panel never accidentally triggers onClose().
+   * Individual result buttons call navigateTo() directly.
+   */
+  function handlePanelClick(e) {
+    e.stopPropagation();
+  }
+
   function navigateTo(path, state) {
     onClose();
     navigate(path, state ? { state } : undefined);
@@ -67,6 +81,7 @@ export default function GlobalSearchDropdown({ query, onClose }) {
       ref={panelRef}
       role="listbox"
       aria-label="Search results"
+      onClick={handlePanelClick}
       className="absolute left-0 right-0 top-[calc(100%+8px)] z-50 rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden"
     >
       {/* Spinner row — shown while the backend request is in flight */}
@@ -100,9 +115,7 @@ export default function GlobalSearchDropdown({ query, onClose }) {
                   type="button"
                   role="option"
                   aria-selected="false"
-                  onClick={() =>
-                    navigateTo(`/news/${article.id}`, { article })
-                  }
+                  onClick={() => navigateTo(`/news/${article.id}`, { article })}
                   className="w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors flex flex-col gap-0.5"
                 >
                   <span className="text-sm font-medium text-slate-800 leading-snug line-clamp-1">
@@ -180,7 +193,9 @@ export default function GlobalSearchDropdown({ query, onClose }) {
                   type="button"
                   role="option"
                   aria-selected="false"
-                  onClick={() => navigateTo(`/elections/${candidate.electionId}/candidates/${candidate.id}`)}
+                  onClick={() =>
+                    navigateTo(`/elections/${candidate.electionId}/candidates/${candidate.id}`)
+                  }
                   className="w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors flex flex-col gap-0.5"
                 >
                   <span className="text-sm font-medium text-slate-800 leading-snug">
