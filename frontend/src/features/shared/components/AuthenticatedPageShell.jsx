@@ -63,7 +63,7 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
   const handleLogout = async () => {
     clearAdminViewMode();
     await supabase.auth.signOut();
-    window.location.href = '/login';
+    navigate('/login', { replace: true });
   };
 
   return (

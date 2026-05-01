@@ -92,7 +92,7 @@ export default function Home() {
   const handleLogout = async () => {
     clearAdminViewMode();
     await supabase.auth.signOut();
-    window.location.href = '/login';
+    navigate('/login', { replace: true });
   };
 
   return (
