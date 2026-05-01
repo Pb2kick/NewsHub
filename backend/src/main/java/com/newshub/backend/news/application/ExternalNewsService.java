@@ -497,6 +497,13 @@ public class ExternalNewsService {
     /**
      * Normalizes image URLs and boosts common low-resolution CDN parameters.
      *
+     * <p>th.bing.com thumbnails are handled in a dedicated early branch because
+     * their URLs contain the word "th" / path "/th?" which causes
+     * {@link #looksLikeLowQualityImage} to reject them before the width boost
+     * can be applied. The Bing branch upsizes to 1200×675 and removes the
+     * crop-mode lock ({@code c=} parameter) so the CDN serves an uncropped
+     * high-quality rendition.
+     *
      * @param imageUrl raw image URL
      * @return optimized image URL or empty string when invalid
      */
@@ -512,6 +519,31 @@ public class ExternalNewsService {
 
         if (normalized.contains("image.thum.io")) {
             return "";
+        }
+
+        // --- Dedicated branch for th.bing.com CDN thumbnails ---
+        // Must run BEFORE looksLikeLowQualityImage because the URL path "/th?"
+        // contains "th" which matches the "thumb" keyword check and causes
+        // premature rejection. We boost resolution here and return immediately.
+        if (normalized.contains("th.bing.com")) {
+            // Boost or inject width to 1200.
+            if (WIDTH_PARAM_PATTERN.matcher(normalized).find()) {
+                normalized = WIDTH_PARAM_PATTERN.matcher(normalized).replaceAll("$11200");
+            } else {
+                normalized += (normalized.contains("?") ? "&" : "?") + "w=1200";
+            }
+            // Boost or inject height to 675 (16:9).
+            Pattern heightPattern = Pattern.compile("([?&](?:h|height)=)(\\d{2,5})", Pattern.CASE_INSENSITIVE);
+            if (heightPattern.matcher(normalized).find()) {
+                normalized = heightPattern.matcher(normalized).replaceAll("$1675");
+            } else {
+                normalized += "&h=675";
+            }
+            // Remove the crop-mode lock (c=7, c=1, etc.) so the CDN serves an
+            // uncropped rendition at the requested dimensions.
+            normalized = normalized.replaceAll("[?&]c=\\d+", "")
+                    .replaceAll("\\?&", "?"); // clean up leading & if c= was the first param
+            return normalized;
         }
 
         if (looksLikeLowQualityImage(normalized)) {

@@ -1,7 +1,16 @@
 import React, { useMemo, useState } from 'react';
+import { getProxiedImageUrl } from '../services/newsApi';
 
 /**
  * Renders an article image with graceful fallback when loading fails.
+ *
+ * All image requests are routed through the backend image-proxy endpoint
+ * (/api/news/image-proxy) so the browser never makes direct requests to
+ * publisher domains. This prevents 403 errors from server-side hotlink
+ * protection — which referrerPolicy="no-referrer" cannot solve because
+ * publishers inspect the request's Origin/Referer on their server, not in
+ * the browser.
+ *
  * @param {{ src: string, alt: string, className: string, fallbackClassName: string }} props
  * @returns {JSX.Element}
  */
@@ -9,32 +18,25 @@ export default function NewsImage({ src, alt, className, fallbackClassName }) {
   const [isBroken, setIsBroken] = useState(false);
 
   /**
-   * Returns a normalized URL candidate for rendering.
+   * Builds a proxied URL for the raw image source.
+   * Returns an empty string when src is blank or non-HTTP so the fallback
+   * div is rendered instead of a broken image request.
    * @returns {string}
    */
-  const safeSource = useMemo(() => {
-    if (typeof src !== 'string') {
-      return '';
-    }
-    const trimmed = src.trim();
-    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      return '';
-    }
-    return trimmed;
-  }, [src]);
+  const proxiedSource = useMemo(() => getProxiedImageUrl(src), [src]);
 
-  if (!safeSource || isBroken) {
+  if (!proxiedSource || isBroken) {
     return <div className={fallbackClassName} />;
   }
 
   return (
     <img
-      src={safeSource}
+      src={proxiedSource}
       alt={alt}
       loading="lazy"
       onError={() => setIsBroken(true)}
       className={className}
-      referrerPolicy="no-referrer"
     />
   );
 }
+

@@ -1,6 +1,27 @@
 const NEWS_API_BASE_URL = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
 
 /**
+ * Wraps an external image URL so the browser fetches it through the backend
+ * proxy instead of making a direct request to the publisher domain.
+ *
+ * This sidesteps server-side hotlink protection: the browser only ever talks
+ * to our own origin; the backend adds the matching Referer header that
+ * satisfies the publisher's hotlink check.
+ *
+ * Returns an empty string for blank or non-HTTP inputs so that NewsImage
+ * still renders its gradient fallback for articles without a valid image.
+ *
+ * @param {string} src - Raw image URL returned by the news API.
+ * @returns {string} Proxy URL or empty string when src is invalid.
+ */
+export function getProxiedImageUrl(src) {
+  if (typeof src !== 'string') return '';
+  const trimmed = src.trim();
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return '';
+  return `${NEWS_API_BASE_URL}/api/news/image-proxy?url=${encodeURIComponent(trimmed)}`;
+}
+
+/**
  * Fetches news items filtered by location and optional coordinates.
  * @param {{ location?: string, latitude?: number | null, longitude?: number | null, country?: string, area?: string, signal?: AbortSignal }} options
  * @returns {Promise<Array>}
