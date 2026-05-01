@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Bell, ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
 import GlobalSearchDropdown from './GlobalSearchDropdown';
+import newshubLogo from '../../../assets/newshub-logo.png';
 
 /**
  * Renders the fixed top header and category navigation.
@@ -57,7 +58,7 @@ export default function HomeHeader(props) {
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="h-16 flex items-center justify-between gap-3 sm:gap-6">
           <Link to="/home" className="flex items-center gap-2 shrink-0">
-            <span className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm">N</span>
+            <img src={newshubLogo} alt="NewsHub" className="w-8 h-8 object-contain" />
             <span className="text-xl font-extrabold text-slate-900 tracking-tight">NewsHub</span>
           </Link>
 

@@ -4,7 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Building2, Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import newshubLogo from '../../../assets/newshub-logo.png';
 import { supabase } from '../../shared/services/supabaseClient';
 import { clearAdminViewMode } from '../hooks/useAdminViewMode';
 
@@ -198,9 +199,7 @@ export default function Login() {
     <div className="min-h-screen bg-muted/30 flex flex-col justify-center px-6 py-12 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center mb-6">
-          <div className="h-12 w-12 bg-primary text-primary-foreground rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-            <Building2 className="h-6 w-6" />
-          </div>
+          <img src={newshubLogo} alt="NewsHub" className="h-16 w-16 object-contain drop-shadow-lg" />
         </div>
         <h2 className="text-center text-2xl/9 font-bold tracking-tight text-foreground">Sign in to NewsHub</h2>
         <p className="mt-2 text-center text-sm/6 text-muted-foreground">The official civic platform for election voting</p>
