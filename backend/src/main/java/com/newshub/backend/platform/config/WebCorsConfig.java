@@ -15,7 +15,8 @@ public class WebCorsConfig implements WebMvcConfigurer {
                 "http://127.0.0.1:3000",
                 "http://192.168.*.*:3000",
                 "http://10.*.*.*:3000",
-                "http://172.*.*.*:3000"
+                "http://172.*.*.*:3000",
+                "https://*.onrender.com"
             )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
             .allowedHeaders("*")
