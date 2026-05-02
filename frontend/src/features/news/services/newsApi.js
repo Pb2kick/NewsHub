@@ -84,32 +84,32 @@ export function getProxiedImageUrl(src) {
 }
 
 /**
- * Fetches news items filtered by location and optional coordinates.
- * @param {{ location?: string, latitude?: number | null, longitude?: number | null, country?: string, area?: string, signal?: AbortSignal }} options
- * @returns {Promise<Array>}
+ * Fetches a paginated page of news items filtered by location and optional coordinates.
+ *
+ * Returns a NewsFeedPage shape:
+ *   { items: NewsFeedItem[], totalCount: number, hasMore: boolean }
+ *
+ * If the backend still returns a plain array (legacy), it is wrapped with
+ * hasMore=false so callers can always use the same shape.
+ *
+ * @param {{ location?: string, latitude?: number|null, longitude?: number|null,
+ *           country?: string, area?: string, page?: number, size?: number,
+ *           signal?: AbortSignal }} options
+ * @returns {Promise<{ items: Array, totalCount: number, hasMore: boolean }>}
  */
-export async function fetchNewsByLocation({ location, latitude, longitude, country, area, signal } = {}) {
+export async function fetchNewsByLocation({
+  location, latitude, longitude, country, area,
+  page = 0, size = 4, signal,
+} = {}) {
   const params = new URLSearchParams();
 
-  if (location) {
-    params.set('location', location);
-  }
-
-  if (typeof latitude === 'number') {
-    params.set('lat', String(latitude));
-  }
-
-  if (typeof longitude === 'number') {
-    params.set('lng', String(longitude));
-  }
-
-  if (country) {
-    params.set('country', country);
-  }
-
-  if (area) {
-    params.set('area', area);
-  }
+  if (location) params.set('location', location);
+  if (typeof latitude === 'number') params.set('lat', String(latitude));
+  if (typeof longitude === 'number') params.set('lng', String(longitude));
+  if (country) params.set('country', country);
+  if (area) params.set('area', area);
+  params.set('page', String(page));   // pagination page index
+  params.set('size', String(size));   // pagination page size
 
   const query = params.toString();
   const url = `${NEWS_API_BASE_URL}/api/news${query ? `?${query}` : ''}`;
@@ -120,7 +120,17 @@ export async function fetchNewsByLocation({ location, latitude, longitude, count
   }
 
   const payload = await response.json();
-  return Array.isArray(payload) ? payload : [];
+
+  // Backward-compat: if backend returns a plain array, wrap it.
+  if (Array.isArray(payload)) {
+    return { items: payload, totalCount: payload.length, hasMore: false };
+  }
+
+  return {
+    items: Array.isArray(payload.items) ? payload.items : [],
+    totalCount: typeof payload.totalCount === 'number' ? payload.totalCount : 0,
+    hasMore: Boolean(payload.hasMore),
+  };
 }
 
 /**

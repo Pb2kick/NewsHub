@@ -2,6 +2,7 @@ package com.newshub.backend.news.api;
 
 import com.newshub.backend.news.api.dto.ArticleContentResponse;
 import com.newshub.backend.news.api.dto.NewsFeedItem;
+import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.application.ExternalNewsService;
 import com.newshub.backend.news.application.NewsService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,21 +28,25 @@ public class NewsController {
      * Returns location-aware news for selected scope and user base location.
      *
      * @param location scope filter such as Local, National, or International
-     * @param lat optional latitude for local scope
-     * @param lng optional longitude for local scope
-     * @param country optional country context from user location changer
-     * @param area optional area context from user location changer
-     * @return filtered feed items
+     * @param lat      optional latitude for local scope
+     * @param lng      optional longitude for local scope
+     * @param country  optional country context from user location changer
+     * @param area     optional area context from user location changer
+     * @param page     0-indexed page number (default 0)
+     * @param size     page size — number of articles per page (default 4)
+     * @return paginated feed page
      */
     @GetMapping
-    public List<NewsFeedItem> getNews(
+    public NewsFeedPage getNews(
             @RequestParam(required = false) String location,
             @RequestParam(required = false) Double lat,
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) String country,
-            @RequestParam(required = false) String area
+            @RequestParam(required = false) String area,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "4") int size
     ) {
-        return newsService.getNews(location, lat, lng, country, area);
+        return newsService.getNews(location, lat, lng, country, area, page, size);
     }
 
     /**

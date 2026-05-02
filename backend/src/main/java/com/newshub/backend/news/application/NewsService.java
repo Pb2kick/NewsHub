@@ -1,6 +1,7 @@
 package com.newshub.backend.news.application;
 
 import com.newshub.backend.news.api.dto.NewsFeedItem;
+import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
 import org.springframework.data.domain.PageRequest;
@@ -38,53 +39,39 @@ public class NewsService {
     }
 
     /**
-     * Returns current-year news for the requested location mode.
+     * Returns location-aware news using a DB-first strategy.
      *
-     * @param location location mode or resolved region name
-     * @param latitude optional latitude for local mode
-     * @param longitude optional longitude for local mode
-     * @param country selected country context
-     * @param area selected area context
-     * @return ordered list of feed items
+     * Serving order:
+     *  1. Count current-year articles in DB for the resolved location scope.
+     *  2. If count &gt; 0 → serve directly from DB (fast path, no outbound HTTP).
+     *  3. If count == 0 → call fetchLiveNews() once to populate the DB, then
+     *     serve page 0 from DB.
+     *
+     * @param location  scope mode (Local, National, International)
+     * @param latitude  optional latitude for Local scope
+     * @param longitude optional longitude for Local scope
+     * @param country   selected country context
+     * @param area      selected area context
+     * @param page      0-indexed page number
+     * @param size      page size (number of articles per page)
+     * @return paginated feed page
      */
-    public List<NewsFeedItem> getNews(String location, Double latitude, Double longitude, String country, String area) {
+    public NewsFeedPage getNews(String location, Double latitude, Double longitude,
+                                String country, String area, int page, int size) {
         String requestedCountry = normalizeCountry(country);
         String requestedLocation = normalizeLocation(location, latitude, longitude, area);
-        List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
-        if (!liveNews.isEmpty()) {
-            persistExternalNews(liveNews, requestedLocation, requestedCountry);
-            return liveNews;
+        int currentYear = LocalDateTime.now().getYear();
+
+        // DB-first: only call live fetch when the DB has no current-year articles for this scope.
+        long existingCount = countForScope(requestedLocation, requestedCountry, currentYear);
+        if (existingCount == 0) {
+            List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
+            if (!liveNews.isEmpty()) {
+                persistExternalNews(liveNews, requestedLocation, requestedCountry);
+            }
         }
 
-        if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.findAllByOrderByPublishedAtDescIdDesc()
-                    .stream()
-                .filter(article -> isCurrentYear(article.getPublishedAt()))
-                    .map(this::toFeedItem)
-                    .toList();
-        }
-
-        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.findNationalNews(requestedCountry, LOCATION_NATIONAL)
-                    .stream()
-                .filter(article -> isCurrentYear(article.getPublishedAt()))
-                    .map(this::toFeedItem)
-                    .toList();
-        }
-
-        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.findInternationalNews(LOCATION_NATIONAL, requestedCountry)
-                    .stream()
-                    .filter(article -> isCurrentYear(article.getPublishedAt()))
-                    .map(this::toFeedItem)
-                    .toList();
-        }
-
-        return newsArticleRepository.findNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation)
-                .stream()
-            .filter(article -> isCurrentYear(article.getPublishedAt()))
-                .map(this::toFeedItem)
-                .toList();
+        return servePagedFromDb(requestedLocation, requestedCountry, page, size);
     }
 
     /**
@@ -323,7 +310,7 @@ public class NewsService {
             return "International";
         }
 
-        return "Philippines";
+        return requestedCountry; // FIX 1: was "Philippines" — hardcoded for PH-only launch; must use actual user country so articles are tagged correctly for all locales
     }
 
     /**
@@ -454,6 +441,66 @@ public class NewsService {
         }
 
         return publishedAt.getYear() == LocalDateTime.now().getYear();
+    }
+
+    /**
+     * Serves a single page of current-year articles from the DB for the given scope.
+     * Computes totalCount and hasMore so the frontend can render the See More control.
+     *
+     * @param requestedLocation resolved location/scope string
+     * @param requestedCountry  resolved country
+     * @param page              0-indexed page number
+     * @param size              page size
+     * @return populated NewsFeedPage
+     */
+    private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry,
+                                          int page, int size) {
+        int currentYear = LocalDateTime.now().getYear();
+        PageRequest pageRequest = PageRequest.of(page, size);
+        long total;
+        List<NewsArticle> articles;
+
+        if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+            total = newsArticleRepository.countByYear(currentYear);
+            articles = newsArticleRepository.findAllByYear(currentYear, pageRequest);
+        } else if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
+            total = newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
+            articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, LOCATION_NATIONAL, currentYear, pageRequest);
+        } else if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            total = newsArticleRepository.countInternationalNews(LOCATION_NATIONAL, requestedCountry, currentYear);
+            articles = newsArticleRepository.findInternationalNewsByYear(LOCATION_NATIONAL, requestedCountry, currentYear, pageRequest);
+        } else {
+            // Local / area scope — requestedLocation holds the resolved area string
+            total = newsArticleRepository.countNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear);
+            articles = newsArticleRepository.findNationalAndRegionByYear(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear, pageRequest);
+        }
+
+        List<NewsFeedItem> items = articles.stream().map(this::toFeedItem).toList();
+        boolean hasMore = (long) page * size + items.size() < total;
+        return new NewsFeedPage(items, (int) total, hasMore);
+    }
+
+    /**
+     * Returns the total count of current-year articles for the given scope
+     * without loading any rows into memory.
+     *
+     * @param requestedLocation resolved location/scope string
+     * @param requestedCountry  resolved country
+     * @param currentYear       current calendar year
+     * @return article count
+     */
+    private long countForScope(String requestedLocation, String requestedCountry, int currentYear) {
+        if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.countByYear(currentYear);
+        }
+        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
+        }
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.countInternationalNews(LOCATION_NATIONAL, requestedCountry, currentYear);
+        }
+        // Local / area scope
+        return newsArticleRepository.countNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear);
     }
 
     /**

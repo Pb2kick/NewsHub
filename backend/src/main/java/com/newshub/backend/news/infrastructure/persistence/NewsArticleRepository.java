@@ -1,6 +1,7 @@
 package com.newshub.backend.news.infrastructure.persistence;
 
 import com.newshub.backend.news.domain.NewsArticle;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -168,5 +169,101 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     boolean existsByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
 
     Optional<NewsArticle> findFirstByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
+
+    // ── Paged feed queries (year-filtered so pagination counts are consistent) ──
+
+    /** All-scope paged fetch, current year only. */
+    @Query("""
+            select n from NewsArticle n
+            where year(n.publishedAt) = :year
+            order by n.publishedAt desc, n.id desc
+            """)
+    List<NewsArticle> findAllByYear(@Param("year") int year, Pageable pageable);
+
+    /** Total current-year article count across all scopes. */
+    @Query("select count(n) from NewsArticle n where year(n.publishedAt) = :year")
+    long countByYear(@Param("year") int year);
+
+    /** National-scope paged fetch, current year only. */
+    @Query("""
+            select n from NewsArticle n
+            where (lower(n.country) = lower(:country)
+               or lower(n.country) = lower(:nationalCountry))
+              and year(n.publishedAt) = :year
+            order by n.publishedAt desc, n.id desc
+            """)
+    List<NewsArticle> findNationalNewsByYear(
+            @Param("country") String country,
+            @Param("nationalCountry") String nationalCountry,
+            @Param("year") int year,
+            Pageable pageable);
+
+    /** Count for national scope. */
+    @Query("""
+            select count(n) from NewsArticle n
+            where (lower(n.country) = lower(:country)
+               or lower(n.country) = lower(:nationalCountry))
+              and year(n.publishedAt) = :year
+            """)
+    long countNationalNews(
+            @Param("country") String country,
+            @Param("nationalCountry") String nationalCountry,
+            @Param("year") int year);
+
+    /** International-scope paged fetch, current year only. */
+    @Query("""
+            select n from NewsArticle n
+            where n.country is not null
+              and lower(n.country) not in (lower(:nationalCountry), lower(:domesticCountry))
+              and year(n.publishedAt) = :year
+            order by n.publishedAt desc, n.id desc
+            """)
+    List<NewsArticle> findInternationalNewsByYear(
+            @Param("nationalCountry") String nationalCountry,
+            @Param("domesticCountry") String domesticCountry,
+            @Param("year") int year,
+            Pageable pageable);
+
+    /** Count for international scope. */
+    @Query("""
+            select count(n) from NewsArticle n
+            where n.country is not null
+              and lower(n.country) not in (lower(:nationalCountry), lower(:domesticCountry))
+              and year(n.publishedAt) = :year
+            """)
+    long countInternationalNews(
+            @Param("nationalCountry") String nationalCountry,
+            @Param("domesticCountry") String domesticCountry,
+            @Param("year") int year);
+
+    /** Local/area-scope paged fetch, current year only. */
+    @Query("""
+            select n from NewsArticle n
+            where (lower(n.country) = lower(:nationalCountry)
+               or lower(n.country) = lower(:country)
+               or lower(n.region)  = lower(:region))
+              and year(n.publishedAt) = :year
+            order by n.publishedAt desc, n.id desc
+            """)
+    List<NewsArticle> findNationalAndRegionByYear(
+            @Param("nationalCountry") String nationalCountry,
+            @Param("country") String country,
+            @Param("region") String region,
+            @Param("year") int year,
+            Pageable pageable);
+
+    /** Count for local/area scope. */
+    @Query("""
+            select count(n) from NewsArticle n
+            where (lower(n.country) = lower(:nationalCountry)
+               or lower(n.country) = lower(:country)
+               or lower(n.region)  = lower(:region))
+              and year(n.publishedAt) = :year
+            """)
+    long countNationalAndRegion(
+            @Param("nationalCountry") String nationalCountry,
+            @Param("country") String country,
+            @Param("region") String region,
+            @Param("year") int year);
 }
 

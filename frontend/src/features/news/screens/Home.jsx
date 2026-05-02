@@ -50,6 +50,9 @@ export default function Home() {
     isUsingCurrentLocation,
     area,
     country,
+    hasMore,
+    isLoadingMore,
+    loadMore,
   } = useLocationNews();
   const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
   const {
@@ -138,6 +141,9 @@ export default function Home() {
             showInitialNewsLoading={showInitialNewsLoading}
             otherArticles={otherArticles}
             hasImage={hasImage}
+            hasMore={hasMore}
+            isLoadingMore={isLoadingMore}
+            loadMore={loadMore}
           />
           <HomeSidebar activeElections={activeElections} />
         </div>

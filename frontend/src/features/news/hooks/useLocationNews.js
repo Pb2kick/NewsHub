@@ -81,6 +81,11 @@ export function useLocationNews() {
   const [newsArticles, setNewsArticles] = useState([]);
   const [isNewsLoading, setIsNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState('');
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   /**
    * Updates selected scope mode and persists it.
@@ -165,16 +170,26 @@ export function useLocationNews() {
   useEffect(() => {
     const abortController = new AbortController();
 
-    /** Loads location-aware news with cancellation safety. */
+    /** Initial page-0 load with cancellation safety. Resets all pagination state. */
     async function loadLocationNews() {
       setIsNewsLoading(true);
       setNewsArticles([]);
       setNewsError('');
+      setPage(0);         // reset to first page on any location change
+      setHasMore(false);
+      setTotalCount(0);
       try {
-        const fetchedNews = await fetchNewsByLocation({ ...locationRequest, signal: abortController.signal });
+        const result = await fetchNewsByLocation({
+          ...locationRequest,
+          page: 0,
+          size: 4,
+          signal: abortController.signal,
+        });
         if (!abortController.signal.aborted) {
-          setNewsArticles(fetchedNews);
-          setNewsError(fetchedNews.length === 0 ? 'No current-year news found for this location yet.' : '');
+          setNewsArticles(result.items);
+          setHasMore(result.hasMore);
+          setTotalCount(result.totalCount);
+          setNewsError(result.items.length === 0 ? 'No current-year news found for this location yet.' : '');
         }
       } catch (error) {
         if (error?.name !== 'AbortError' && !abortController.signal.aborted) {
@@ -192,6 +207,31 @@ export function useLocationNews() {
     return () => abortController.abort();
   }, [locationRequest]);
 
+  /**
+   * Fetches the next page and APPENDS items to the existing list.
+   * Uses isLoadingMore (not isNewsLoading) so the full skeleton is never shown.
+   */
+  const loadMore = async () => {
+    if (!hasMore || isLoadingMore) return;
+    const nextPage = page + 1;
+    setIsLoadingMore(true);
+    try {
+      const result = await fetchNewsByLocation({
+        ...locationRequest,
+        page: nextPage,
+        size: 4,
+      });
+      setNewsArticles((prev) => [...prev, ...result.items]); // APPEND — never replace
+      setHasMore(result.hasMore);
+      setTotalCount(result.totalCount);
+      setPage(nextPage);
+    } catch {
+      // Silently swallow load-more errors; the existing articles remain visible.
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   return {
     selectedLocation,
     locationLabel,
@@ -208,5 +248,10 @@ export function useLocationNews() {
     // Exposed so consumers can build a locationContext for search filtering.
     area: userLocationDetails.area,
     country: userLocationDetails.country,
+    // Pagination
+    hasMore,
+    isLoadingMore,
+    loadMore,
+    totalCount,
   };
 }
