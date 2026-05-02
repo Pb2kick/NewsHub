@@ -89,13 +89,13 @@ public class NewsService {
 
     /**
      * Searches persisted articles whose title, summary, or content contain the
-     * given keyword phrase, optionally scoped to the user's current location.
+     * given keyword phrase, scoped to the user's current location.
      *
      * Dispatches to the appropriate repository query based on the location mode:
-     *  - Local       → searchByKeywordAndArea   (matches region or country)
-     *  - National    → searchByKeywordAndNational (matches domestic country / National tag)
+     *  - Local         → searchByKeywordAndArea    (matches region or country)
+     *  - National      → searchByKeywordAndNational (matches domestic country / National tag)
      *  - International → searchByKeywordAndInternational (excludes domestic country)
-     *  - null / blank → searchByKeyword (global, unscoped)
+     *  - null / unresolved → List.of() — never dumps the whole DB on an unscoped request.
      *
      * Returns at most 8 results ordered by publish date.
      *
@@ -103,16 +103,26 @@ public class NewsService {
      * @param location scope mode: Local, National, or International
      * @param area     resolved area for Local scope (e.g. "New Orleans")
      * @param country  resolved country for National scope (e.g. "United States")
-     * @return list of matching feed items, empty when query is blank
+     * @return list of matching feed items, empty when query or location context is blank
      */
     public List<NewsFeedItem> searchNews(String query, String location, String area, String country) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
 
+        // FIX A+B: Reject unresolved context immediately — no country default injected here.
+        // normalizeCountry() is intentionally NOT called so a null country from the frontend
+        // cannot silently become "Philippines" and cross-contaminate results for other locales.
+        // If both location and country are absent the request arrived before the frontend's
+        // locationContext resolved; returning an empty list is the safe, correct behaviour.
+        if ((location == null || location.isBlank()) && (country == null || country.isBlank())) {
+            return List.of(); // location context not yet resolved — do not query
+        }
+
         String keyword = query.trim();
         PageRequest page = PageRequest.of(0, 8);
-        String resolvedCountry = normalizeCountry(country);
+        // Use country as-is; blank/null means the caller has not resolved it yet.
+        String resolvedCountry = (country != null && !country.isBlank()) ? country.trim() : "";
 
         if (LOCATION_LOCAL.equalsIgnoreCase(location) && area != null && !area.isBlank()) {
             return newsArticleRepository
@@ -138,12 +148,10 @@ public class NewsService {
                     .toList();
         }
 
-        // No location context provided — fall back to global keyword search.
-        return newsArticleRepository
-                .searchByKeyword(keyword, page)
-                .stream()
-                .map(this::toFeedItem)
-                .toList();
+        // FIX B: location is present but doesn't match any known mode (e.g. a raw area name
+        // arriving before the frontend normalises it). Return empty — never fall through to
+        // the unscoped searchByKeyword which would dump the entire database.
+        return List.of(); // unknown/unsupported location mode — do not query
     }
 
     /**
