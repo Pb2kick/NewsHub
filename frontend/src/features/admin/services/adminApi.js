@@ -241,7 +241,7 @@ export async function deleteCandidate(candidateId) {
 export async function listNews() {
   const { data, error } = await supabase
     .from('news')
-    .select('id,title,summary,source,country,region,published_at,user_id')
+    .select('id,title,summary,source,source_url,country,region,published_at,user_id')
     .order('published_at', { ascending: false });
 
   if (error) {

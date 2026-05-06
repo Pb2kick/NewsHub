@@ -228,7 +228,7 @@ public class NewsService {
                 readTime,
                 image,
             "DATABASE",
-            null,
+            article.getSourceUrl(),
             null
         );
     }
@@ -263,6 +263,7 @@ public class NewsService {
                     firstNonBlank(item.content(), item.excerpt()),
                     normalizedImage,
                     item.author(),
+                    item.sourceUrl(),
                     resolveCountryForLocation(requestedLocation, requestedCountry),
                     resolveRegionForLocation(requestedLocation),
                     parseFeedDate(item.date()),
@@ -500,7 +501,7 @@ public class NewsService {
             return newsArticleRepository.countInternationalNews(LOCATION_NATIONAL, requestedCountry, currentYear);
         }
         // Local / area scope
-        return newsArticleRepository.countNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear);
+        return newsArticleRepository.countByRegion(requestedLocation, currentYear);
     }
 
     /**

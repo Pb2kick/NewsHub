@@ -31,6 +31,9 @@ public class NewsArticle {
         @Column(name = "source", length = 255)
         private String source;
 
+        @Column(name = "source_url", length = 1200)
+        private String sourceUrl;
+
         @Column(name = "country", length = 120)
         private String country;
 
@@ -46,12 +49,13 @@ public class NewsArticle {
         public NewsArticle() {
         }
 
-        public NewsArticle(String title, String summary, String content, String mediaUrls, String source, String country, String region, LocalDateTime publishedAt, Long userId) {
+        public NewsArticle(String title, String summary, String content, String mediaUrls, String source, String sourceUrl, String country, String region, LocalDateTime publishedAt, Long userId) {
                 this.title = title;
                 this.summary = summary;
                 this.content = content;
                 this.mediaUrls = mediaUrls;
                 this.source = source;
+                this.sourceUrl = sourceUrl;
                 this.country = country;
                 this.region = region;
                 this.publishedAt = publishedAt;
@@ -104,6 +108,14 @@ public class NewsArticle {
 
         public void setSource(String source) {
                 this.source = source;
+        }
+
+        public String getSourceUrl() {
+                return sourceUrl;
+        }
+
+        public void setSourceUrl(String sourceUrl) {
+                this.sourceUrl = sourceUrl;
         }
 
         public String getCountry() {

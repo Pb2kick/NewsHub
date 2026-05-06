@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Trash2 } from 'lucide-react';
+import { ExternalLink, Trash2 } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import { useAdminResource } from '../hooks/useAdminResource';
@@ -47,7 +47,14 @@ export default function AdminNews() {
         {!loading && !error && filtered.length > 0 ? (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500">
-              <tr><th className="px-4 py-3 text-left">Title</th><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Published</th><th className="px-4 py-3 text-left">Region</th><th className="px-4 py-3 text-right">Action</th></tr>
+              <tr>
+                <th className="px-4 py-3 text-left">Title</th>
+                <th className="px-4 py-3 text-left">Source</th>
+                <th className="px-4 py-3 text-left">Published</th>
+                <th className="px-4 py-3 text-left">Region</th>
+                <th className="px-4 py-3 text-left">Original</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
             </thead>
             <tbody>
               {filtered.map((item) => (
@@ -56,6 +63,21 @@ export default function AdminNews() {
                   <td className="px-4 py-3 text-slate-600">{item.source || 'N/A'}</td>
                   <td className="px-4 py-3 text-slate-600">{item.published_at ? new Date(item.published_at).toLocaleString() : 'N/A'}</td>
                   <td className="px-4 py-3 text-slate-600">{[item.region, item.country].filter(Boolean).join(', ') || 'N/A'}</td>
+                  <td className="px-4 py-3">
+                    {item.source_url ? (
+                      <a
+                        href={item.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-medium"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        View
+                      </a>
+                    ) : (
+                      <span className="text-slate-400 text-xs">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right"><button type="button" onClick={() => handleDelete(item.id)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4" />Delete</button></td>
                 </tr>
               ))}

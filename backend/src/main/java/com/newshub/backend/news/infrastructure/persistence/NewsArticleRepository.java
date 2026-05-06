@@ -265,5 +265,15 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("country") String country,
             @Param("region") String region,
             @Param("year") int year);
+
+    /** Count for local scope (region only). */
+    @Query("""
+            select count(n) from NewsArticle n
+            where lower(n.region) = lower(:region)
+              and year(n.publishedAt) = :year
+            """)
+    long countByRegion(
+            @Param("region") String region,
+            @Param("year") int year);
 }
 
