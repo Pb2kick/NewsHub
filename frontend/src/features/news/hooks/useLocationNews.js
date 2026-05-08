@@ -11,13 +11,20 @@ import { resolveLocationDetails, toValidLocationMode } from '../../shared/utils/
 
 /**
  * Returns default location details for unsupported geolocation scenarios.
+ *
+ * BUG 7 FIX: was 'Metro District' / 'Philippines' — hardcoded PH defaults caused every
+ * new user without a stored location to seed the DB with Philippines-tagged articles and
+ * contaminate the International pool for PH users.
+ * Blank country/area is the safe sentinel: the backend returns List.of() for blank country,
+ * and the loadLocationNews() guard (Fix 5e below) prevents a blank-country fetch from firing.
+ *
  * @returns {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null }}
  */
 function fallbackUserLocation() {
   return {
-    area: 'Metro District',
-    country: 'Philippines',
-    label: APPROXIMATE_LOCAL_LABEL,
+    area: '',     // was 'Metro District' — blank signals unresolved state
+    country: '',  // was 'Philippines'    — blank prevents PH-scoped DB seeding
+    label: APPROXIMATE_LOCAL_LABEL, // now 'Location not yet resolved' (BUG 7 FIX)
     latitude: null,
     longitude: null,
   };
@@ -81,6 +88,13 @@ export function useLocationNews() {
   const [newsArticles, setNewsArticles] = useState([]);
   const [isNewsLoading, setIsNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState('');
+  // BUG 5e FIX: tracks whether we're waiting for the user's location to resolve.
+  // While true the news skeleton stays visible (showInitialNewsLoading = isNewsLoading && articles===0
+  // would collapse to false if we set isNewsLoading=false on a blank-country early return).
+  const [isLocationPending, setIsLocationPending] = useState(
+    // Pending if initial location details are blank (GPS hasn't resolved yet).
+    !storedManualLocation && !userLocationDetails.country
+  );
   // Pagination state
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -172,6 +186,18 @@ export function useLocationNews() {
 
     /** Initial page-0 load with cancellation safety. Resets all pagination state. */
     async function loadLocationNews() {
+      // BUG 5e FIX: do not fire a backend request when country is blank (location not yet
+      // resolved). A blank country would reach ExternalNewsService with null country and
+      // previously triggered a Philippines RSS fetch. Keep isNewsLoading=true and set
+      // isLocationPending=true so the skeleton stays visible while GPS resolves.
+      if (!locationRequest.country || !locationRequest.location) {
+        setIsLocationPending(true); // show "Detecting your location..." skeleton
+        setIsNewsLoading(true);     // keep skeleton visible (showInitialNewsLoading stays true)
+        return; // wait for GPS / manual location selection — do not hit the backend
+      }
+
+      // Location resolved — clear the pending flag and proceed with the fetch.
+      setIsLocationPending(false);
       setIsNewsLoading(true);
       setNewsArticles([]);
       setNewsError('');
@@ -248,6 +274,9 @@ export function useLocationNews() {
     // Exposed so consumers can build a locationContext for search filtering.
     area: userLocationDetails.area,
     country: userLocationDetails.country,
+    // BUG 5e FIX: expose pending flag so Home.jsx / HomeNewsGrid can show the
+    // "Detecting your location..." spinner while country is not yet resolved.
+    isLocationPending,
     // Pagination
     hasMore,
     isLoadingMore,

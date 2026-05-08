@@ -79,9 +79,9 @@ public class NewsService {
      * given keyword phrase, scoped to the user's current location.
      *
      * Dispatches to the appropriate repository query based on the location mode:
-     *  - Local         → searchByKeywordAndArea    (matches region or country)
-     *  - National      → searchByKeywordAndNational (matches domestic country / National tag)
-     *  - International → searchByKeywordAndInternational (excludes domestic country)
+     *  - Local         → searchByKeywordAndArea    (matches region only — BUG 2 FIX: country OR branch removed)
+     *  - National      → searchByKeywordAndNational (matches domestic country / National tag, excludes region-tagged Local rows)
+     *  - International → searchByKeywordAndInternational (matches country='International' AND region=:domesticCountry — BUG 1 FIX)
      *  - null / unresolved → List.of() — never dumps the whole DB on an unscoped request.
      *
      * Returns at most 8 results ordered by publish date.
@@ -113,7 +113,9 @@ public class NewsService {
 
         if (LOCATION_LOCAL.equalsIgnoreCase(location) && area != null && !area.isBlank()) {
             return newsArticleRepository
-                    .searchByKeywordAndArea(keyword, area.trim(), resolvedCountry, page)
+                    // BUG 2 FIX: country param removed from Local search — region-only match
+                    // prevents National articles from bleeding into Local search results.
+                    .searchByKeywordAndArea(keyword, area.trim(), page)
                     .stream()
                     .map(this::toFeedItem)
                     .toList();
@@ -129,7 +131,9 @@ public class NewsService {
 
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
             return newsArticleRepository
-                    .searchByKeywordAndInternational(keyword, LOCATION_NATIONAL, resolvedCountry, page)
+                    // BUG 1 FIX: nationalCountry param removed — new query matches
+                    // country='international' AND region=:domesticCountry instead of NOT IN.
+                    .searchByKeywordAndInternational(keyword, resolvedCountry, page)
                     .stream()
                     .map(this::toFeedItem)
                     .toList();
@@ -265,7 +269,9 @@ public class NewsService {
                     item.author(),
                     item.sourceUrl(),
                     resolveCountryForLocation(requestedLocation, requestedCountry),
-                    resolveRegionForLocation(requestedLocation),
+                    // BUG 1 FIX: pass requestedCountry so the 2-arg overload can store
+                    // domestic country in region for International-scoped articles.
+                    resolveRegionForLocation(requestedLocation, requestedCountry),
                     parseFeedDate(item.date()),
                     null
                 );
@@ -321,15 +327,38 @@ public class NewsService {
      * @return region value or null for non-regional modes
      */
     private String resolveRegionForLocation(String requestedLocation) {
+        // BUG 4 FIX: null/blank input no longer hard-defaults to a Philippines area.
+        // Returning null is safe — country column alone identifies the article's scope.
         if (requestedLocation == null || requestedLocation.isBlank()) {
-            return "Metro District";
+            return null; // was "Metro District" — removed PH-hardcoded default
         }
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)
-                || LOCATION_ALL.equalsIgnoreCase(requestedLocation)
-                || LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return null;
+                || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+            return null; // National/All articles carry no region tag
         }
-        return requestedLocation;
+        // BUG 1 FIX: International scope handled by the overloaded variant below;
+        // this branch is never reached for International — kept for clarity.
+        return requestedLocation; // Local / resolved area name
+    }
+
+    /**
+     * Derives region value for International scope articles.
+     *
+     * BUG 1 FIX: stores the user's domestic country in the region column so
+     * International articles are country-scoped without adding a new DB column.
+     * Schema: country="International", region="United States" (for US user).
+     *
+     * @param requestedLocation selected location mode
+     * @param requestedCountry  user's domestic country
+     * @return region value to persist
+     */
+    private String resolveRegionForLocation(String requestedLocation, String requestedCountry) {
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            // Store domestic country in region so each user's International articles
+            // are distinguishable from every other country's International articles.
+            return requestedCountry; // was null — caused all-user cross-contamination
+        }
+        return resolveRegionForLocation(requestedLocation); // delegate for all other modes
     }
 
     /**
@@ -465,15 +494,21 @@ public class NewsService {
             total = newsArticleRepository.countByYear(currentYear);
             articles = newsArticleRepository.findAllByYear(currentYear, pageRequest);
         } else if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
+            // BUG 2 FIX: findNationalNewsByYear now excludes articles with a non-null region
+            // so city-specific Local articles never appear in the National feed.
             total = newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
             articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, LOCATION_NATIONAL, currentYear, pageRequest);
         } else if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            total = newsArticleRepository.countInternationalNews(LOCATION_NATIONAL, requestedCountry, currentYear);
-            articles = newsArticleRepository.findInternationalNewsByYear(LOCATION_NATIONAL, requestedCountry, currentYear, pageRequest);
+            // BUG 1 FIX: new 1-country signature — matches country='International' AND region=:domesticCountry
+            // instead of the old NOT IN approach that pooled all users' International articles together.
+            total = newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
+            articles = newsArticleRepository.findInternationalNewsByYear(requestedCountry, currentYear, pageRequest);
         } else {
-            // Local / area scope — requestedLocation holds the resolved area string
-            total = newsArticleRepository.countNationalAndRegion(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear);
-            articles = newsArticleRepository.findNationalAndRegionByYear(LOCATION_NATIONAL, requestedCountry, requestedLocation, currentYear, pageRequest);
+            // Local / area scope — requestedLocation holds the resolved area string.
+            // BUG 2+3 FIX: use renamed findLocalNewsByYear / countLocalNews which match
+            // ONLY by region, eliminating the OR country=:country bleed-through.
+            total = newsArticleRepository.countLocalNews(requestedLocation, currentYear);
+            articles = newsArticleRepository.findLocalNewsByYear(requestedLocation, currentYear, pageRequest);
         }
 
         List<NewsFeedItem> items = articles.stream().map(this::toFeedItem).toList();
@@ -495,13 +530,18 @@ public class NewsService {
             return newsArticleRepository.countByYear(currentYear);
         }
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
+            // BUG 2 FIX: countNationalNews now excludes non-null region rows — consistent
+            // with the updated findNationalNewsByYear used in servePagedFromDb.
             return newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
         }
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return newsArticleRepository.countInternationalNews(LOCATION_NATIONAL, requestedCountry, currentYear);
+            // BUG 1+3 FIX: use the new 1-country signature that matches on region=:domesticCountry
+            // instead of NOT IN, consistent with servePagedFromDb's findInternationalNewsByYear.
+            return newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
         }
-        // Local / area scope
-        return newsArticleRepository.countByRegion(requestedLocation, currentYear);
+        // BUG 3 FIX: use countLocalNews (region-only) instead of countByRegion — now identical
+        // to the count used in servePagedFromDb, eliminating the gate/pagination mismatch.
+        return newsArticleRepository.countLocalNews(requestedLocation, currentYear);
     }
 
     /**

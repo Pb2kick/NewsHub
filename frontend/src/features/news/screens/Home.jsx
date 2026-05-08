@@ -53,6 +53,7 @@ export default function Home() {
     hasMore,
     isLoadingMore,
     loadMore,
+    isLocationPending, // BUG 5e FIX: true while GPS/country hasn't resolved yet
   } = useLocationNews();
   const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
   const {
@@ -144,6 +145,7 @@ export default function Home() {
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
             loadMore={loadMore}
+            isLocationPending={isLocationPending} // BUG 5e FIX: spinner while country unresolved
           />
           <HomeSidebar activeElections={activeElections} />
         </div>

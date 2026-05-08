@@ -9,13 +9,20 @@ import { toValidLocationMode } from './locationResolver';
 
 /**
  * Returns default user location details when no manual payload exists.
+ *
+ * BUG 7 FIX: was 'Metro District' / 'Philippines' — hardcoded PH defaults caused every
+ * new user without a stored location to seed the DB with Philippines-tagged articles.
+ * Returning blank country/area is safe: the backend's searchNews() already returns
+ * List.of() when both location and country are blank, and the loadLocationNews() guard
+ * (Fix 5e) prevents the news fetch from firing until a real location is resolved.
+ *
  * @returns {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null }}
  */
 function fallbackUserLocationDetails() {
   return {
-    area: 'Metro District',
-    country: 'Philippines',
-    label: APPROXIMATE_LOCAL_LABEL,
+    area: '',            // was 'Metro District' — blank signals unresolved, not Philippines
+    country: '',         // was 'Philippines'    — blank prevents PH-scoped DB seeding
+    label: APPROXIMATE_LOCAL_LABEL, // now 'Location not yet resolved' (BUG 7 FIX in locations.js)
     latitude: null,
     longitude: null,
   };

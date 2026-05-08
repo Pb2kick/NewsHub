@@ -24,6 +24,8 @@ export const USER_LOCATION_CURRENT = 'CURRENT';
 
 /**
  * Approximate label used when geolocation is unavailable.
+ * BUG 7 FIX: was 'Metro District, Philippines (Approx.)' — hardcoded PH reference caused
+ * every new user without a stored location to appear as a Philippines user.
  * @type {string}
  */
-export const APPROXIMATE_LOCAL_LABEL = 'Metro District, Philippines (Approx.)';
+export const APPROXIMATE_LOCAL_LABEL = 'Location not yet resolved';

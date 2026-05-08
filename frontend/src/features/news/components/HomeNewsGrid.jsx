@@ -27,6 +27,8 @@ export default function HomeNewsGrid(props) {
     showInitialNewsLoading,
     otherArticles,
     hasImage,
+    // BUG 5e FIX: true while GPS/country hasn't resolved — show detecting spinner
+    isLocationPending = false,
     // Pagination props
     hasMore = false,
     isLoadingMore = false,
@@ -56,11 +58,16 @@ export default function HomeNewsGrid(props) {
         </h2>
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
           <div className="text-xs sm:text-sm text-slate-500">
-            {isDetecting ? 'Detecting location...' : isNewsLoading ? `Fetching ${selectedLocation} news...` : `Location: ${selectedLocation}`}
-            {locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
+            {/* BUG 5e FIX: show "Detecting your location" while country is blank */}
+            {isLocationPending
+              ? <span className="flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" />Detecting your location&hellip;</span>
+              : isDetecting ? 'Detecting location...'
+              : isNewsLoading ? `Fetching ${selectedLocation} news...`
+              : `Location: ${selectedLocation}`}
+            {!isLocationPending && locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
           </div>
-          {locationError && !isDetecting && <span className="text-xs text-amber-600">{locationError}</span>}
-          {newsError && !isNewsLoading && <span className="text-xs text-amber-600">{newsError}</span>}
+          {locationError && !isDetecting && !isLocationPending && <span className="text-xs text-amber-600">{locationError}</span>}
+          {newsError && !isNewsLoading && !isLocationPending && <span className="text-xs text-amber-600">{newsError}</span>}
           <select
             value={selectedLocation}
             onChange={(event) => setSelectedLocation(event.target.value)}
@@ -73,9 +80,10 @@ export default function HomeNewsGrid(props) {
         </div>
       </div>
 
-      {/* Article grid — shows skeletons on initial load, articles + load-more skeletons otherwise */}
+      {/* Article grid — shows skeletons on initial load, detecting spinner, or articles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">
-        {showInitialNewsLoading ? (
+        {/* BUG 5e FIX: show skeletons while GPS/country is resolving (isLocationPending) */}
+        {(isLocationPending || showInitialNewsLoading) ? (
           Array.from({ length: 4 }).map((_, index) => (
             <SkeletonCard key={`loading-${index}`} id={`loading-${index}`} />
           ))

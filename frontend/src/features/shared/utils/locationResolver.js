@@ -1,19 +1,24 @@
 /**
- * Returns a deterministic fallback location from coarse coordinates.
+ * Returns a neutral unresolved marker when coordinate-based country guessing is not feasible.
+ *
+ * BUG 6 FIX: The previous implementation used Philippines-specific coordinate thresholds
+ * (lon < 121.0, lat < 14.4) that produce completely wrong results for any non-PH user.
+ * A New Orleans user (lat≈29.95, lon≈-90.07) hit the lon < 121 branch and was tagged as
+ * "North Province, Philippines" — contaminating every DB article they seeded.
+ *
+ * Coordinate-based country guessing is inherently unreliable for a global app. Return a
+ * safe neutral marker instead; resolveLocationDetails() already uses Nominatim for real
+ * GPS coordinates and only falls back here on network failure. "Unknown" signals to the
+ * caller that the location is unresolved rather than silently assigning a wrong country.
+ *
  * @param {number} latitude
  * @param {number} longitude
  * @returns {{ area: string, country: string }}
  */
 export function fallbackLocationFromCoordinates(latitude, longitude) {
-  if (longitude < 121.0) {
-    return { area: 'North Province', country: 'Philippines' };
-  }
-
-  if (latitude < 14.4) {
-    return { area: 'Central Region', country: 'Philippines' };
-  }
-
-  return { area: 'Metro District', country: 'Philippines' };
+  // BUG 6 FIX: was three Philippines-specific branches that mis-tagged every non-PH user.
+  // Return Unknown so callers surface a "location not resolved" state instead of wrong data.
+  return { area: 'Unknown Area', country: 'Unknown' };
 }
 
 /**

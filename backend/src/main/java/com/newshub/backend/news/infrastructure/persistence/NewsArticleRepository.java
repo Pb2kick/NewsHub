@@ -39,7 +39,9 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * @param nationalCountry legacy national tag
      * @param domesticCountry selected domestic country context
      * @return international feed entities
+     * @deprecated Use {@link #findInternationalNewsByYear} for paged access with correct country-scoping.
      */
+    @Deprecated
     @Query("""
             select n from NewsArticle n
             where n.country is not null
@@ -49,13 +51,15 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     List<NewsArticle> findInternationalNews(@Param("nationalCountry") String nationalCountry, @Param("domesticCountry") String domesticCountry);
 
     /**
-     * Returns local records scoped to selected area plus fallback national rows.
+     * Returns local records scoped to selected area.
      *
-     * @param nationalCountry legacy national tag
-     * @param country selected country context
+     * @param nationalCountry legacy national tag (unused in query — retained for signature compat)
+     * @param country selected country context (unused in query — retained for signature compat)
      * @param region selected area context
      * @return local feed entities
+     * @deprecated Use {@link #findLocalNewsByYear} which is region-only and avoids National bleed-through.
      */
+    @Deprecated
     @Query("""
         select n from NewsArticle n
         where lower(n.country) = lower(:nationalCountry)
@@ -85,11 +89,14 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     /**
      * Full-text keyword search filtered to a specific region/area (Local scope).
      * Matches articles whose title, summary, or content contain the keyword AND
-     * whose region or country matches the requested area.
+     * whose region matches the requested area (region-only — no country fallback).
+     *
+     * BUG 2 FIX: removed "or lower(n.country) = lower(:country)" branch which caused
+     * every National article for the user's domestic country to appear in Local search.
+     * Local search must match region only so city-specific results are not contaminated.
      *
      * @param keyword lower-cased search phrase
-     * @param area    resolved area name (e.g. "Metro District", "New Orleans")
-     * @param country domestic country context used as a fallback match
+     * @param area    resolved area name (e.g. "New Orleans")
      * @return matching news entities ordered by most recent first
      */
     @Query("""
@@ -99,16 +106,12 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
          or lower(n.summary) like concat('%', lower(:keyword), '%')
          or lower(n.content) like concat('%', lower(:keyword), '%')
         )
-        and (
-            lower(n.region)  = lower(:area)
-         or lower(n.country) = lower(:country)
-        )
+        and lower(n.region) = lower(:area)  -- BUG 2 FIX: region-only, no country OR branch
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndArea(
             @Param("keyword") String keyword,
             @Param("area") String area,
-            @Param("country") String country,
             org.springframework.data.domain.Pageable pageable);
 
     /**
@@ -132,6 +135,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             lower(n.country) = lower(:country)
          or lower(n.country) = lower(:nationalCountry)
         )
+        and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local (region-tagged) articles from National search
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndNational(
@@ -142,11 +146,14 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     /**
      * Full-text keyword search filtered to the international scope.
-     * Excludes articles belonging to the domestic country or legacy national tag.
+     * Matches articles where country='International' AND region equals the user's domestic country.
+     *
+     * BUG 1 FIX: replaced the NOT IN approach with a positive match on country='international'
+     * AND region=:domesticCountry. This ensures only the requesting user's International
+     * articles are returned, not every other user's International pool.
      *
      * @param keyword         lower-cased search phrase
-     * @param nationalCountry legacy "National" tag to exclude
-     * @param domesticCountry domestic country to exclude
+     * @param domesticCountry user's domestic country stored in region column
      * @return matching news entities ordered by most recent first
      */
     @Query("""
@@ -156,13 +163,12 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
          or lower(n.summary) like concat('%', lower(:keyword), '%')
          or lower(n.content) like concat('%', lower(:keyword), '%')
         )
-        and n.country is not null
-        and lower(n.country) not in (lower(:nationalCountry), lower(:domesticCountry))
+        and lower(n.country) = 'international' -- BUG 1 FIX: positive match instead of NOT IN
+        and lower(n.region)  = lower(:domesticCountry) -- domestic country stored in region column
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndInternational(
             @Param("keyword") String keyword,
-            @Param("nationalCountry") String nationalCountry,
             @Param("domesticCountry") String domesticCountry,
             org.springframework.data.domain.Pageable pageable);
 
@@ -184,11 +190,14 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("select count(n) from NewsArticle n where year(n.publishedAt) = :year")
     long countByYear(@Param("year") int year);
 
-    /** National-scope paged fetch, current year only. */
+    /** National-scope paged fetch, current year only.
+     * BUG 2 FIX: added (n.region IS NULL OR n.region = '') so Local articles
+     * (which carry a non-null region value) never bleed into the National feed. */
     @Query("""
             select n from NewsArticle n
             where (lower(n.country) = lower(:country)
                or lower(n.country) = lower(:nationalCountry))
+              and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local articles
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
@@ -198,11 +207,13 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("year") int year,
             Pageable pageable);
 
-    /** Count for national scope. */
+    /** Count for national scope.
+     * BUG 2 FIX: same region IS NULL guard as findNationalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
             where (lower(n.country) = lower(:country)
                or lower(n.country) = lower(:nationalCountry))
+              and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local articles
               and year(n.publishedAt) = :year
             """)
     long countNationalNews(
@@ -210,33 +221,67 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("nationalCountry") String nationalCountry,
             @Param("year") int year);
 
-    /** International-scope paged fetch, current year only. */
+    /** International-scope paged fetch, current year only.
+     * BUG 1 FIX: replaced NOT IN (nationalCountry, domesticCountry) with a
+     * positive match: country='international' AND region=:domesticCountry.
+     * This scopes International articles per-user via the region column without
+     * adding a new DB column (domestic country stored in region at persist time). */
     @Query("""
             select n from NewsArticle n
-            where n.country is not null
-              and lower(n.country) not in (lower(:nationalCountry), lower(:domesticCountry))
+            where lower(n.country) = 'international' -- BUG 1 FIX: positive match
+              and lower(n.region)  = lower(:domesticCountry) -- domestic country in region
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
     List<NewsArticle> findInternationalNewsByYear(
-            @Param("nationalCountry") String nationalCountry,
             @Param("domesticCountry") String domesticCountry,
             @Param("year") int year,
             Pageable pageable);
 
-    /** Count for international scope. */
+    /** Count for international scope.
+     * BUG 1 FIX: identical WHERE clause as findInternationalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
-            where n.country is not null
-              and lower(n.country) not in (lower(:nationalCountry), lower(:domesticCountry))
+            where lower(n.country) = 'international' -- BUG 1 FIX: positive match
+              and lower(n.region)  = lower(:domesticCountry) -- domestic country in region
               and year(n.publishedAt) = :year
             """)
     long countInternationalNews(
-            @Param("nationalCountry") String nationalCountry,
             @Param("domesticCountry") String domesticCountry,
             @Param("year") int year);
 
-    /** Local/area-scope paged fetch, current year only. */
+    /** Local/area-scope paged fetch, current year only.
+     * BUG 2+3 FIX: renamed from findNationalAndRegionByYear; now matches ONLY by
+     * region, dropping the OR country=:country and OR country=:nationalCountry branches
+     * that caused every National article for the user's country to bleed into Local. */
+    @Query("""
+            select n from NewsArticle n
+            where lower(n.region) = lower(:region) -- BUG 2 FIX: region-only, no country branches
+              and year(n.publishedAt) = :year
+            order by n.publishedAt desc, n.id desc
+            """)
+    List<NewsArticle> findLocalNewsByYear(
+            @Param("region") String region,
+            @Param("year") int year,
+            Pageable pageable);
+
+    /** Count for local/area scope — region only.
+     * BUG 2+3 FIX: renamed from countNationalAndRegion; consistent with findLocalNewsByYear.
+     * countForScope now also uses this method so the DB-first gate and hasMore are in sync. */
+    @Query("""
+            select count(n) from NewsArticle n
+            where lower(n.region) = lower(:region) -- BUG 2 FIX: region-only
+              and year(n.publishedAt) = :year
+            """)
+    long countLocalNews(
+            @Param("region") String region,
+            @Param("year") int year);
+
+    /**
+     * @deprecated Superseded by {@link #findLocalNewsByYear} (region-only).
+     * Retained for any legacy call sites; not called by NewsService.
+     */
+    @Deprecated
     @Query("""
             select n from NewsArticle n
             where (lower(n.country) = lower(:nationalCountry)
@@ -252,7 +297,11 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("year") int year,
             Pageable pageable);
 
-    /** Count for local/area scope. */
+    /**
+     * @deprecated Superseded by {@link #countLocalNews} (region-only).
+     * Retained for any legacy call sites; not called by NewsService.
+     */
+    @Deprecated
     @Query("""
             select count(n) from NewsArticle n
             where (lower(n.country) = lower(:nationalCountry)
@@ -266,7 +315,10 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("region") String region,
             @Param("year") int year);
 
-    /** Count for local scope (region only). */
+    /** Count for local scope (region only) — kept for backward compatibility.
+     * @deprecated Use {@link #countLocalNews} instead.
+     */
+    @Deprecated
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)

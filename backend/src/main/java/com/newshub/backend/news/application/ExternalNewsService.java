@@ -206,7 +206,13 @@ public class ExternalNewsService {
      * @return encoded query input for news search
      */
     private String queryForLocation(String requestedLocation, String requestedCountry) {
-        String country = requestedCountry == null || requestedCountry.isBlank() ? "Philippines" : requestedCountry;
+        // BUG 5 FIX: null/blank country no longer silently defaults to Philippines.
+        // Return a safe generic query so the RSS fetch doesn't contaminate the cache
+        // or the DB with PH-scoped content for non-PH users whose location hasn't resolved.
+        if (requestedCountry == null || requestedCountry.isBlank()) {
+            return "latest world news"; // generic fallback — never Philippines-specific
+        }
+        String country = requestedCountry.trim(); // was: null/blank ? "Philippines" : requestedCountry
         String location = requestedLocation == null || requestedLocation.isBlank() ? "National" : requestedLocation;
 
         if ("All".equalsIgnoreCase(location)) {
@@ -733,7 +739,9 @@ public class ExternalNewsService {
      * @return normalized cache key
      */
     private String normalizeLocationKey(String requestedLocation, String requestedCountry) {
-        String country = requestedCountry == null || requestedCountry.isBlank() ? "philippines" : requestedCountry;
+        // BUG 5 FIX: null/blank country now maps to "unknown" cache key segment instead of
+        // "philippines" — prevents cross-contaminating the PH cache for non-PH users.
+        String country = requestedCountry == null || requestedCountry.isBlank() ? "unknown" : requestedCountry; // was "philippines"
         if (requestedLocation == null || requestedLocation.isBlank()) {
             return "national|" + country.trim().toLowerCase(Locale.ROOT);
         }
@@ -746,8 +754,10 @@ public class ExternalNewsService {
      * @param requestedCountry selected country context
      */
     private void invalidateCacheForCountry(String requestedCountry) {
+        // BUG 5 FIX: null/blank country maps to "unknown" instead of "philippines" so cache
+        // invalidation never silently scopes to the PH cache segment for unresolved users.
         String normalizedCountry = (requestedCountry == null || requestedCountry.isBlank())
-                ? "philippines"
+                ? "unknown"  // was "philippines" — safe sentinel for unresolved location
                 : requestedCountry.trim().toLowerCase(Locale.ROOT);
 
         cacheByLocation.entrySet().removeIf((entry) -> {
