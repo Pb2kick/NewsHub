@@ -106,7 +106,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
          or lower(n.summary) like concat('%', lower(:keyword), '%')
          or lower(n.content) like concat('%', lower(:keyword), '%')
         )
-        and lower(n.region) = lower(:area)  -- BUG 2 FIX: region-only, no country OR branch
+        and lower(n.region) = lower(:area)
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndArea(
@@ -135,7 +135,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             lower(n.country) = lower(:country)
          or lower(n.country) = lower(:nationalCountry)
         )
-        and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local (region-tagged) articles from National search
+        and (n.region is null or n.region = '')
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndNational(
@@ -163,8 +163,8 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
          or lower(n.summary) like concat('%', lower(:keyword), '%')
          or lower(n.content) like concat('%', lower(:keyword), '%')
         )
-        and lower(n.country) = 'international' -- BUG 1 FIX: positive match instead of NOT IN
-        and lower(n.region)  = lower(:domesticCountry) -- domestic country stored in region column
+        and lower(n.country) = 'international'
+        and lower(n.region)  = lower(:domesticCountry)
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndInternational(
@@ -197,7 +197,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             select n from NewsArticle n
             where (lower(n.country) = lower(:country)
                or lower(n.country) = lower(:nationalCountry))
-              and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local articles
+              and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
@@ -213,7 +213,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             select count(n) from NewsArticle n
             where (lower(n.country) = lower(:country)
                or lower(n.country) = lower(:nationalCountry))
-              and (n.region is null or n.region = '') -- BUG 2 FIX: exclude Local articles
+              and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
             """)
     long countNationalNews(
@@ -228,8 +228,8 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * adding a new DB column (domestic country stored in region at persist time). */
     @Query("""
             select n from NewsArticle n
-            where lower(n.country) = 'international' -- BUG 1 FIX: positive match
-              and lower(n.region)  = lower(:domesticCountry) -- domestic country in region
+            where lower(n.country) = 'international'
+              and lower(n.region)  = lower(:domesticCountry)
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
@@ -242,8 +242,8 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * BUG 1 FIX: identical WHERE clause as findInternationalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
-            where lower(n.country) = 'international' -- BUG 1 FIX: positive match
-              and lower(n.region)  = lower(:domesticCountry) -- domestic country in region
+            where lower(n.country) = 'international'
+              and lower(n.region)  = lower(:domesticCountry)
               and year(n.publishedAt) = :year
             """)
     long countInternationalNews(
@@ -256,7 +256,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * that caused every National article for the user's country to bleed into Local. */
     @Query("""
             select n from NewsArticle n
-            where lower(n.region) = lower(:region) -- BUG 2 FIX: region-only, no country branches
+            where lower(n.region) = lower(:region)
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
@@ -270,7 +270,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * countForScope now also uses this method so the DB-first gate and hasMore are in sync. */
     @Query("""
             select count(n) from NewsArticle n
-            where lower(n.region) = lower(:region) -- BUG 2 FIX: region-only
+            where lower(n.region) = lower(:region)
               and year(n.publishedAt) = :year
             """)
     long countLocalNews(
