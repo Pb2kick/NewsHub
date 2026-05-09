@@ -480,30 +480,38 @@ export async function updateCandidate(id, payload) {
   return data;
 }
 
-// ── AI election lookup (Anthropic) ─────────────────────────────────────────-
+// ── AI election lookup — proxied through Spring Boot backend ─────────────────
+// (replaces the previous direct Anthropic fetch which caused a CORS error in
+//  production; the API key now lives only in the Render backend environment)
 
 /**
- * Fetches the most recent Philippine election and candidates via Anthropic.
- * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>} 
+ * Fetches the most recent Philippine election and candidates via the
+ * backend AI proxy at POST /api/ai/fetch-ph-election.
+ *
+ * The backend forwards the request to Anthropic using the server-side API key
+ * and returns the raw Anthropic JSON so this function can parse it identically
+ * to the old direct-fetch implementation.
+ *
+ * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>}
  */
 export async function fetchLatestPhElection() {
-  const message = 'Search for the single most recent or currently ongoing Philippine national or local election as of today. Return ONLY a JSON object (no markdown) with this exact shape: { election: { name, region, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), status (Active|Upcoming|Completed) }, candidates: [{ name, party, position, bio, photo_url }] }. Use real candidate names and real parties from search results. photo_url should be an empty string if not found.';
+  const baseUrl = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch(`${baseUrl}/api/ai/fetch-ph-election`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1500,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      messages: [{ role: 'user', content: message }],
-    }),
   });
 
   if (!response.ok) {
-    throw new Error(`Unable to fetch election data. Status: ${response.status}`);
+    let errorMessage = `Unable to fetch election data. Status: ${response.status}`;
+    try {
+      const errorBody = await response.json();
+      if (errorBody?.error) {
+        errorMessage = errorBody.error;
+      }
+    } catch {
+      // ignore JSON parse failure on error body — use the default message
+    }
+    throw new Error(errorMessage);
   }
 
   const payload = await response.json();
