@@ -1,9 +1,14 @@
-import React, { useMemo, useState } from 'react';
+/*
+ * Changes:
+ * - Load election and candidates from Supabase with loading/error states.
+ * - Added image fallbacks and empty-candidate handling.
+ */
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Home, Lock, PartyPopper, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Home, Lock, PartyPopper, ShieldCheck, User } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
-import { CANDIDATES, ELECTIONS } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
+import { getCandidatesByElectionId, getElectionById } from '../services/electionsApi';
 
 /**
  * Creates deterministic confirmation code for mock vote receipts.
@@ -25,15 +30,53 @@ export default function Vote() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [step, setStep] = useState('select');
   const [confirmationCode, setConfirmationCode] = useState('');
+  const [election, setElection] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  const election = ELECTIONS.find((item) => String(item.id) === String(electionId));
-  const candidates = useMemo(() => CANDIDATES.filter((item) => String(item.electionId) === String(electionId)), [electionId]);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      setLoadError('');
+      const [electionData, candidateData] = await Promise.all([
+        getElectionById(electionId),
+        getCandidatesByElectionId(electionId),
+      ]);
+      if (!active) return;
+      if (!electionData) {
+        setElection(null);
+        setCandidates([]);
+        setLoadError('Election not found');
+      } else {
+        setElection(electionData);
+        setCandidates(candidateData || []);
+      }
+      setSelectedCandidate(null);
+      setStep('select');
+      setIsLoading(false);
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [electionId]);
+
   const selectedCandidateData = candidates.find((item) => item.id === selectedCandidate);
+
+  if (isLoading) {
+    return (
+      <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">Loading ballot...</div>
+      </AuthenticatedPageShell>
+    );
+  }
 
   if (!election) {
     return (
       <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
-        <div className="max-w-7xl mx-auto px-4 py-16 text-center">Election not found</div>
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center">{loadError || 'Election not found'}</div>
       </AuthenticatedPageShell>
     );
   }
@@ -59,19 +102,29 @@ export default function Vote() {
           {step === 'select' && (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-slate-900">Select Your Candidate</h2>
-              {candidates.map((candidate) => (
-                <button key={candidate.id} type="button" onClick={() => setSelectedCandidate(candidate.id)} className={`w-full p-3 border-2 rounded-xl text-left ${selectedCandidate === candidate.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'}`}>
-                  <div className="flex items-center gap-3">
-                    <img src={candidate.image} alt={candidate.name} className="w-12 h-12 rounded-full object-cover" />
-                    <div>
-                      <h3 className="font-bold text-slate-900">{candidate.name}</h3>
-                      <p className="text-xs text-slate-500">{candidate.party}</p>
+              {candidates.length === 0 ? (
+                <div className="text-sm text-slate-500">No candidates available for this election.</div>
+              ) : (
+                candidates.map((candidate) => (
+                  <button key={candidate.id} type="button" onClick={() => setSelectedCandidate(candidate.id)} className={`w-full p-3 border-2 rounded-xl text-left ${selectedCandidate === candidate.id ? 'border-blue-600 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex items-center gap-3">
+                      {candidate.image ? (
+                        <img src={candidate.image} alt={candidate.name} className="w-12 h-12 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
+                          <User className="w-5 h-5 text-slate-400" />
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="font-bold text-slate-900">{candidate.name}</h3>
+                        <p className="text-xs text-slate-500">{candidate.party || 'Independent'}</p>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              )}
               <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 flex gap-2"><AlertTriangle className="w-4 h-4 mt-0.5" />Your vote is final once submitted.</div>
-              <button type="button" onClick={() => setStep('confirm')} disabled={!selectedCandidate} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">Review Selection</button>
+              <button type="button" onClick={() => setStep('confirm')} disabled={!selectedCandidate || candidates.length === 0} className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50">Review Selection</button>
             </div>
           )}
 
@@ -79,9 +132,15 @@ export default function Vote() {
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-slate-900">Confirm Your Vote</h2>
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
-                <img src={selectedCandidateData.image} alt={selectedCandidateData.name} className="w-20 h-20 rounded-full object-cover mx-auto mb-3" />
+                {selectedCandidateData.image ? (
+                  <img src={selectedCandidateData.image} alt={selectedCandidateData.name} className="w-20 h-20 rounded-full object-cover mx-auto mb-3" />
+                ) : (
+                  <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center mx-auto mb-3">
+                    <User className="w-6 h-6 text-slate-400" />
+                  </div>
+                )}
                 <h3 className="font-bold text-slate-900">{selectedCandidateData.name}</h3>
-                <p className="text-sm text-slate-500">{selectedCandidateData.party}</p>
+                <p className="text-sm text-slate-500">{selectedCandidateData.party || 'Independent'}</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <button type="button" onClick={() => setStep('select')} className="py-3 border border-slate-200 rounded-lg font-semibold">Go Back</button>

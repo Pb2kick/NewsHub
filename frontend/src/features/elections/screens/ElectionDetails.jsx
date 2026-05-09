@@ -1,9 +1,14 @@
-import React, { useMemo } from 'react';
+/*
+ * Changes:
+ * - Load election and candidates from Supabase instead of mock data.
+ * - Added loading/error states and image fallbacks for empty media.
+ */
+import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, MapPin, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, MapPin, User, Users, Vote } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
-import { CANDIDATES, ELECTIONS } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
+import { getCandidatesByElectionId, getElectionById } from '../services/electionsApi';
 
 /**
  * Renders election details and candidate list.
@@ -11,17 +16,52 @@ import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
  */
 export default function ElectionDetails() {
   const { electionId } = useParams();
-  const election = ELECTIONS.find((item) => String(item.id) === String(electionId));
-  const candidates = useMemo(
-    () => CANDIDATES.filter((candidate) => String(candidate.electionId) === String(electionId)),
-    [electionId]
-  );
+  const [election, setElection] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      setLoadError('');
+      const [electionData, candidateData] = await Promise.all([
+        getElectionById(electionId),
+        getCandidatesByElectionId(electionId),
+      ]);
+      if (!active) return;
+      if (!electionData) {
+        setLoadError('Election not found.');
+        setElection(null);
+        setCandidates([]);
+      } else {
+        setElection(electionData);
+        setCandidates(candidateData || []);
+      }
+      setIsLoading(false);
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [electionId]);
+
+  if (isLoading) {
+    return (
+      <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">
+          Loading election...
+        </div>
+      </AuthenticatedPageShell>
+    );
+  }
 
   if (!election) {
     return (
       <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
         <div className="max-w-7xl mx-auto px-4 py-16 text-center">
-          <h1 className="text-2xl font-bold text-slate-900">Election not found</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{loadError || 'Election not found'}</h1>
           <Link to="/elections" className="text-blue-600 mt-4 inline-block">Back to Elections</Link>
         </div>
       </AuthenticatedPageShell>
@@ -37,7 +77,13 @@ export default function ElectionDetails() {
       </Link>
 
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm mb-8">
-        <img src={election.image} alt={election.title} className="w-full h-52 sm:h-64 object-cover" />
+        {election.image ? (
+          <img src={election.image} alt={election.title} className="w-full h-52 sm:h-64 object-cover" />
+        ) : (
+          <div className="w-full h-52 sm:h-64 bg-slate-100 flex items-center justify-center">
+            <Vote className="w-12 h-12 text-slate-400" />
+          </div>
+        )}
         <div className="p-6">
           <div className="flex flex-wrap gap-2 mb-3">
             <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">{election.scope}</span>
@@ -65,7 +111,13 @@ export default function ElectionDetails() {
         {candidates.map((candidate) => (
           <Link key={candidate.id} to={`/elections/${election.id}/candidates/${candidate.id}`} className="bg-white border border-slate-200 rounded-xl p-4 hover:border-blue-300 hover:shadow-sm transition-all">
             <div className="flex items-center gap-3">
-              <img src={candidate.image} alt={candidate.name} className="w-16 h-16 rounded-full object-cover" />
+              {candidate.image ? (
+                <img src={candidate.image} alt={candidate.name} className="w-16 h-16 rounded-full object-cover" />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
+                  <User className="w-6 h-6 text-slate-400" />
+                </div>
+              )}
               <div>
                 <h3 className="font-bold text-slate-900">{candidate.name}</h3>
                 <p className="text-sm text-slate-500">{candidate.party}</p>

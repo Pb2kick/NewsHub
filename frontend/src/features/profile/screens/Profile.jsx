@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../shared/services/supabaseClient';
 import { clearAdminViewMode } from '../../auth/hooks/useAdminViewMode';
+import { getMyVerification } from '../../admin/services/adminApi';
 
 const PROFILE_PHOTO_BUCKET = 'profile-photos';
 
@@ -50,6 +51,7 @@ export default function Profile() {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState('');
   const [editableFirstName, setEditableFirstName] = useState('');
   const [editableLastName, setEditableLastName] = useState('');
+  const [verificationStatus, setVerificationStatus] = useState('NOT_SUBMITTED');
   const [userData, setUserData] = useState({
     id: '',
     firstName: '',
@@ -57,7 +59,7 @@ export default function Profile() {
     fullName: 'NewsHub User',
     email: '',
     role: 'voter',
-    verified: true,
+    verified: false,
     createdAt: '',
   });
 
@@ -72,7 +74,11 @@ export default function Profile() {
 
   useEffect(() => {
     const loadProfile = async () => {
-      const { data, error } = await supabase.auth.getUser();
+      const [authResponse, verificationRecord] = await Promise.all([
+        supabase.auth.getUser(),
+        getMyVerification(),
+      ]);
+      const { data, error } = authResponse;
       const user = data?.user;
 
       if (error || !user) {
@@ -103,6 +109,9 @@ export default function Profile() {
       const finalLastName = tableLastName || metadataLastName || '';
       const combinedName = `${finalFirstName} ${finalLastName}`.trim();
       const finalFullName = combinedName || tableFullName || metadataFullName || 'NewsHub User';
+      const resolvedStatus = verificationRecord?.status
+        ? String(verificationRecord.status).toUpperCase()
+        : 'NOT_SUBMITTED';
 
       setUserData({
         id: user.id,
@@ -111,9 +120,10 @@ export default function Profile() {
         fullName: finalFullName,
         email: user.email || '',
         role: user.user_metadata?.role || 'voter',
-        verified: Boolean(user.email_confirmed_at),
+        verified: resolvedStatus === 'APPROVED',
         createdAt: user.created_at || '',
       });
+      setVerificationStatus(resolvedStatus);
       setEditableFirstName(finalFirstName);
       setEditableLastName(finalLastName);
       setProfilePhotoUrl(finalPhotoUrl);
@@ -377,6 +387,20 @@ export default function Profile() {
   const isFromAdmin = new URLSearchParams(location.search).get('fromAdmin') === '1';
   const backPath = isFromAdmin ? '/admin' : '/home';
   const backLabel = isFromAdmin ? 'Dashboard' : 'Home';
+  const statusLabel = verificationStatus === 'APPROVED'
+    ? 'Verified'
+    : verificationStatus === 'PENDING'
+      ? 'Pending'
+      : verificationStatus === 'REJECTED'
+        ? 'Rejected'
+        : 'Not Verified';
+  const statusClass = verificationStatus === 'APPROVED'
+    ? 'bg-blue-100 text-blue-700'
+    : verificationStatus === 'PENDING'
+      ? 'bg-amber-100 text-amber-700'
+      : verificationStatus === 'REJECTED'
+        ? 'bg-rose-100 text-rose-700'
+        : 'bg-slate-200 text-slate-600';
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -575,17 +599,9 @@ export default function Profile() {
                 Verification Status
               </div>
               <div className="sm:col-span-2">
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                  userData.verified ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
-                }`}>
-                  {userData.verified ? (
-                    <>
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Verified
-                    </>
-                  ) : (
-                    'Not Verified'
-                  )}
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${statusClass}`}>
+                  {verificationStatus === 'APPROVED' ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                  {statusLabel}
                 </span>
               </div>
             </div>

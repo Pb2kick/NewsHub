@@ -1,3 +1,7 @@
+/*
+ * Changes:
+ * - Added election/candidate CRUD helpers and Anthropic election lookup for admin seeding.
+ */
 /**
  * SETUP — run these statements in Supabase SQL Editor before deploying:
  *
@@ -366,6 +370,164 @@ export async function submitVerification({
 
   if (insertError) {
     throw new Error(toErrorMessage(insertError, 'Submission failed. Please try again.'));
+  }
+}
+
+// ── Admin elections + candidates CRUD ───────────────────────────────────────
+
+/**
+ * Creates a new election row.
+ * @param {{ name: string, region: string, start_time: string, end_time: string, status: string }} payload
+ * @returns {Promise<any>}
+ */
+export async function createElection({ name, region, start_time, end_time, status }) {
+  const adminProfile = await getCurrentAdminProfile();
+  const { data, error } = await supabase
+    .from('elections')
+    .insert({
+      name,
+      region,
+      start_time,
+      end_time,
+      status,
+      is_deleted: false,
+      created_by_admin_id: adminProfile?.id ?? null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(toErrorMessage(error, 'Unable to create election.'));
+  }
+  return data;
+}
+
+/**
+ * Updates an election row.
+ * @param {string | number} id
+ * @param {{ name: string, region: string, start_time: string, end_time: string, status: string }} payload
+ * @returns {Promise<any>}
+ */
+export async function updateElection(id, { name, region, start_time, end_time, status }) {
+  const { data, error } = await supabase
+    .from('elections')
+    .update({ name, region, start_time, end_time, status })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(toErrorMessage(error, 'Unable to update election.'));
+  }
+  return data;
+}
+
+/**
+ * Creates a candidate row.
+ * @param {{ election_id: number, name: string, party: string, position: string, photo_url?: string, bio: string, education: string, experience?: string, display_order: number }} payload
+ * @returns {Promise<any>}
+ */
+export async function createCandidate({
+  election_id,
+  name,
+  party,
+  position,
+  photo_url,
+  bio,
+  education,
+  experience,
+  display_order,
+}) {
+  const { data, error } = await supabase
+    .from('candidates')
+    .insert({
+      election_id,
+      name,
+      party,
+      position,
+      photo_url,
+      bio,
+      education,
+      experience,
+      display_order,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(toErrorMessage(error, 'Unable to create candidate.'));
+  }
+  return data;
+}
+
+/**
+ * Updates a candidate row.
+ * @param {string | number} id
+ * @param {{ election_id?: number, name?: string, party?: string, position?: string, photo_url?: string, bio?: string, education?: string, experience?: string, display_order?: number }} payload
+ * @returns {Promise<any>}
+ */
+export async function updateCandidate(id, payload) {
+  const { data, error } = await supabase
+    .from('candidates')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(toErrorMessage(error, 'Unable to update candidate.'));
+  }
+  return data;
+}
+
+// ── AI election lookup (Anthropic) ─────────────────────────────────────────-
+
+/**
+ * Fetches the most recent Philippine election and candidates via Anthropic.
+ * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>} 
+ */
+export async function fetchLatestPhElection() {
+  const message = 'Search for the single most recent or currently ongoing Philippine national or local election as of today. Return ONLY a JSON object (no markdown) with this exact shape: { election: { name, region, start_date (YYYY-MM-DD), end_date (YYYY-MM-DD), status (Active|Upcoming|Completed) }, candidates: [{ name, party, position, bio, photo_url }] }. Use real candidate names and real parties from search results. photo_url should be an empty string if not found.';
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: message }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch election data. Status: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const text = Array.isArray(payload?.content)
+    ? payload.content
+        .filter((block) => block?.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+    : '';
+
+  if (!text) {
+    throw new Error('Unable to parse election data. No text content returned.');
+  }
+
+  const sanitized = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(sanitized);
+  } catch {
+    throw new Error('Unable to parse election data. Invalid JSON returned.');
   }
 }
 

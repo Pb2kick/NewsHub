@@ -1,15 +1,15 @@
 /*
  * Changes:
- * - Check Supabase verification status before voting and route accordingly.
- * - Add a verification-required modal with actions to verify or cancel.
+ * - Load candidate details from Supabase and add loading/not-found states.
+ * - Keep verification gating while adding image fallbacks and hiding empty stats.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Loader2, ShieldCheck, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, ShieldCheck, ThumbsUp, User } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
-import { CANDIDATES } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
 import { getMyVerification } from '../../admin/services/adminApi';
+import { getCandidateById } from '../services/electionsApi';
 
 /**
  * Renders detailed candidate profile with mock vote action.
@@ -20,12 +20,43 @@ export default function CandidateProfile() {
   const navigate = useNavigate();
   const [verifyModal, setVerifyModal] = useState(false);
   const [checkingVerification, setCheckingVerification] = useState(false);
-  const candidate = CANDIDATES.find((item) => String(item.id) === String(candidateId));
+  const [candidate, setCandidate] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      setLoadError('');
+      const data = await getCandidateById(candidateId);
+      if (!active) return;
+      if (!data) {
+        setCandidate(null);
+        setLoadError('Candidate not found');
+      } else {
+        setCandidate(data);
+      }
+      setIsLoading(false);
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [candidateId]);
+
+  if (isLoading) {
+    return (
+      <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center text-slate-500">Loading candidate...</div>
+      </AuthenticatedPageShell>
+    );
+  }
 
   if (!candidate) {
     return (
       <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
-        <div className="max-w-7xl mx-auto px-4 py-16 text-center">Candidate not found</div>
+        <div className="max-w-7xl mx-auto px-4 py-16 text-center">{loadError || 'Candidate not found'}</div>
       </AuthenticatedPageShell>
     );
   }
@@ -59,8 +90,14 @@ export default function CandidateProfile() {
         <div className="lg:col-span-4 space-y-6">
           <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 bg-white">
             <div className="aspect-[4/5] relative">
-              <img src={candidate.image} alt={candidate.name} className="w-full h-full object-cover" />
-              <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full shadow-sm text-sm font-bold text-slate-900">{candidate.party}</div>
+              {candidate.image ? (
+                <img src={candidate.image} alt={candidate.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+                  <User className="w-10 h-10 text-slate-400" />
+                </div>
+              )}
+              <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full shadow-sm text-sm font-bold text-slate-900">{candidate.party || 'Independent'}</div>
             </div>
             <div className="p-6 text-center">
               <h1 className="text-3xl font-bold text-slate-900 mb-1">{candidate.name}</h1>
@@ -90,10 +127,18 @@ export default function CandidateProfile() {
           <section>
             <h2 className="text-2xl font-bold text-slate-900 mb-4">Quick Stats</h2>
             <div className="grid md:grid-cols-2 gap-4">
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Age: <strong>{candidate.age}</strong></div>
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Education: <strong>{candidate.education}</strong></div>
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Years in Office: <strong>{candidate.yearsInOffice}</strong></div>
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Residence: <strong>{candidate.residence}</strong></div>
+              {candidate.age ? (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Age: <strong>{candidate.age}</strong></div>
+              ) : null}
+              {candidate.education ? (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Education: <strong>{candidate.education}</strong></div>
+              ) : null}
+              {candidate.yearsInOffice ? (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Years in Office: <strong>{candidate.yearsInOffice}</strong></div>
+              ) : null}
+              {candidate.residence ? (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">Residence: <strong>{candidate.residence}</strong></div>
+              ) : null}
             </div>
           </section>
           <section>
