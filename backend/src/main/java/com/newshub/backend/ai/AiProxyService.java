@@ -1,6 +1,5 @@
 package com.newshub.backend.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -9,22 +8,26 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Server-side proxy for the Anthropic Messages API.
  *
  * Keeps the API key server-side (never exposed to the browser) and avoids the
  * CORS restriction that prevents direct browser-to-Anthropic calls.
- * Uses Java 11+ java.net.http.HttpClient — no additional Maven dependency required.
+ *
+ * Uses Java 11+ java.net.http.HttpClient and builds the request body as a
+ * plain JSON string — no Jackson / ObjectMapper needed, avoiding the
+ * com.fasterxml.jackson.databind compile error on spring-boot-starter-webmvc.
  */
 @Service
 public class AiProxyService {
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
-    /** Fixed user prompt — never changes between calls. */
+    /**
+     * Fixed user prompt — escaped once here as a JSON string value so it can be
+     * safely embedded directly into the hand-built request body.
+     */
     private static final String PH_ELECTION_PROMPT =
             "Search for the single most recent or currently ongoing Philippine national or local " +
             "election as of today. Return ONLY a JSON object (no markdown) with this exact shape: " +
@@ -42,7 +45,6 @@ public class AiProxyService {
     @Value("${anthropic.model}")
     private String model;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(15))
             .build();
@@ -56,14 +58,14 @@ public class AiProxyService {
      */
     public String fetchPhElectionRaw() {
         try {
-            // Build request payload using Jackson so special characters are escaped correctly.
-            Map<String, Object> requestBody = Map.of(
-                    "model", model,
-                    "max_tokens", 1500,
-                    "tools", List.of(Map.of("type", "web_search_20250305", "name", "web_search")),
-                    "messages", List.of(Map.of("role", "user", "content", PH_ELECTION_PROMPT))
-            );
-            String jsonBody = objectMapper.writeValueAsString(requestBody);
+            // Build the JSON body as a plain string — no Jackson dependency required.
+            // The prompt is embedded via escapeJson() to handle any special characters safely.
+            String jsonBody = "{"
+                    + "\"model\":\"" + escapeJson(model) + "\","
+                    + "\"max_tokens\":1500,"
+                    + "\"tools\":[{\"type\":\"web_search_20250305\",\"name\":\"web_search\"}],"
+                    + "\"messages\":[{\"role\":\"user\",\"content\":\"" + escapeJson(PH_ELECTION_PROMPT) + "\"}]"
+                    + "}";
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(apiUrl))
@@ -90,5 +92,23 @@ public class AiProxyService {
             throw new RuntimeException(
                     "Failed to contact the Anthropic API: " + exception.getMessage(), exception);
         }
+    }
+
+    /**
+     * Minimal JSON string escaper — handles the characters that can appear in the
+     * fixed prompt so it embeds safely into the hand-built JSON body.
+     * Covers: backslash, double-quote, newline, carriage-return, tab.
+     *
+     * @param value raw string value
+     * @return JSON-safe escaped string (without surrounding quotes)
+     */
+    private static String escapeJson(String value) {
+        if (value == null) return "";
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 }
