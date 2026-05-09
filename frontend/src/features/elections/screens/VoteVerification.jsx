@@ -1,3 +1,8 @@
+/*
+ * Changes:
+ * - Enforce a 16-digit national ID in the Zod schema to match verification requirements.
+ * - Restrict typed input to digits only while keeping paste support and add maxLength/placeholder.
+ */
 /**
  * VoteVerification.jsx — REWRITTEN from mock to real Supabase flow.
  *
@@ -35,7 +40,10 @@ import { getMyVerification, submitVerification } from '../../admin/services/admi
 
 // ── Zod schema — text fields only; file checked separately ───────────────────
 const verificationSchema = z.object({
-  nationalIdNumber: z.string().min(4, 'Enter your national ID number').max(50),
+  nationalIdNumber: z
+    .string()
+    .length(16, 'National ID number must be exactly 16 digits')
+    .regex(/^\d{16}$/, 'National ID number must contain only digits, no spaces or dashes'),
   fullName: z.string().min(2, 'Enter your full legal name').max(100),
   dateOfBirth: z.string().min(1, 'Select your date of birth'),
   barangay: z.string().min(1, 'Enter your barangay').max(100),
@@ -142,6 +150,30 @@ export default function VoteVerification() {
     },
   });
 
+  const handleNationalIdKeyDown = (event) => {
+    if (event.ctrlKey || event.metaKey) {
+      return;
+    }
+    const allowedKeys = [
+      'Backspace',
+      'Delete',
+      'Tab',
+      'ArrowLeft',
+      'ArrowRight',
+      'ArrowUp',
+      'ArrowDown',
+      'Home',
+      'End',
+      'Enter',
+    ];
+    if (allowedKeys.includes(event.key)) {
+      return;
+    }
+    if (!/^\d$/.test(event.key)) {
+      event.preventDefault();
+    }
+  };
+
   // ── Check existing verification on mount ─────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +271,9 @@ export default function VoteVerification() {
                   </label>
                   <input
                     {...form.register('nationalIdNumber')}
-                    placeholder="e.g. 1234-5678-9012"
+                    placeholder="16-digit number e.g. 1234567890123456"
+                    maxLength={16}
+                    onKeyDown={handleNationalIdKeyDown}
                     className={inputCls}
                   />
                   {form.formState.errors.nationalIdNumber && (

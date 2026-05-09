@@ -1,9 +1,15 @@
+/*
+ * Changes:
+ * - Check Supabase verification status before voting and route accordingly.
+ * - Add a verification-required modal with actions to verify or cancel.
+ */
 import React, { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, ShieldCheck, ThumbsUp } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, CheckCircle, Loader2, ShieldCheck, ThumbsUp } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
 import { CANDIDATES } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
+import { getMyVerification } from '../../admin/services/adminApi';
 
 /**
  * Renders detailed candidate profile with mock vote action.
@@ -11,7 +17,9 @@ import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
  */
 export default function CandidateProfile() {
   const { candidateId, electionId } = useParams();
-  const [message, setMessage] = useState('');
+  const navigate = useNavigate();
+  const [verifyModal, setVerifyModal] = useState(false);
+  const [checkingVerification, setCheckingVerification] = useState(false);
   const candidate = CANDIDATES.find((item) => String(item.id) === String(candidateId));
 
   if (!candidate) {
@@ -22,10 +30,21 @@ export default function CandidateProfile() {
     );
   }
 
-  /** Handles mock vote success feedback. */
-  const handleVote = () => {
-    setMessage(`You have successfully cast your vote for ${candidate.name}.`);
-    window.setTimeout(() => setMessage(''), 2500);
+  const handleVoteClick = async () => {
+    setCheckingVerification(true);
+    try {
+      const verification = await getMyVerification();
+      const status = verification?.status ? String(verification.status).toUpperCase() : null;
+
+      if (status === 'APPROVED') {
+        navigate(`/elections/${electionId}/vote`);
+        return;
+      }
+
+      setVerifyModal(true);
+    } finally {
+      setCheckingVerification(false);
+    }
   };
 
   return (
@@ -35,8 +54,6 @@ export default function CandidateProfile() {
         <ArrowLeft className="w-4 h-4" />
         Back to Candidates
       </Link>
-
-      {message && <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{message}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
@@ -48,8 +65,17 @@ export default function CandidateProfile() {
             <div className="p-6 text-center">
               <h1 className="text-3xl font-bold text-slate-900 mb-1">{candidate.name}</h1>
               <p className="text-lg text-slate-600 font-medium mb-6">{candidate.position}</p>
-              <button onClick={handleVote} className="w-full py-4 bg-blue-600 text-white font-bold text-lg rounded-xl shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2">
-                <CheckCircle className="w-6 h-6" /> Vote for {candidate.name.split(' ')[0]}
+              <button
+                onClick={handleVoteClick}
+                disabled={checkingVerification}
+                className="w-full py-4 bg-blue-600 text-white font-bold text-lg rounded-xl shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
+              >
+                {checkingVerification ? (
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-6 h-6" />
+                )}
+                Vote for {candidate.name.split(' ')[0]}
               </button>
               <p className="text-xs text-slate-400 mt-4 flex items-center justify-center gap-1"><ShieldCheck className="w-3 h-3" />Verified Candidate</p>
             </div>
@@ -84,6 +110,39 @@ export default function CandidateProfile() {
         </div>
       </div>
       </div>
+
+      {verifyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Verification Required</h2>
+            <p className="text-sm text-slate-600 mb-6">
+              You must complete voter identity verification before casting your vote.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyModal(false);
+                  navigate(`/elections/${electionId}/verify`);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Verify My Identity
+              </button>
+              <button
+                type="button"
+                onClick={() => setVerifyModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AuthenticatedPageShell>
   );
 }
