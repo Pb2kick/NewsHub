@@ -1,3 +1,16 @@
+/**
+ * SETUP — run these statements in Supabase SQL Editor before deploying:
+ *
+ *   -- 1. Add national ID number column (idempotent):
+ *   ALTER TABLE verifications ADD COLUMN IF NOT EXISTS national_id_number TEXT;
+ *
+ *   -- 2. Create Storage bucket for ID photo uploads (one-time, in Supabase dashboard
+ *          Storage → New bucket → name: "verification-ids" → Public: ON).
+ *          Or via SQL:
+ *   INSERT INTO storage.buckets (id, name, public)
+ *   VALUES ('verification-ids', 'verification-ids', true)
+ *   ON CONFLICT (id) DO NOTHING;
+ */
 import { supabase } from '../../shared/services/supabaseClient';
 
 /**
@@ -149,7 +162,7 @@ export async function listVerifications({ status, search } = {}) {
 export async function getVerificationById(verificationId) {
   const { data, error } = await supabase
     .from('verifications')
-    .select('id,user_id,full_name,address,birthdate,photo_id_url,status,submitted_at,reviewed_at,reviewed_by_admin_id')
+    .select('id,user_id,full_name,address,birthdate,national_id_number,photo_id_url,status,submitted_at,reviewed_at,reviewed_by_admin_id')
     .eq('id', verificationId)
     .maybeSingle();
 
@@ -261,3 +274,98 @@ export async function deleteNews(newsId) {
     throw new Error(toErrorMessage(error, 'Unable to delete news item.'));
   }
 }
+
+// ── Voter-facing verification API ─────────────────────────────────────────────
+
+/**
+ * Fetches the authenticated user's most recent verification row.
+ * Returns null instead of throwing on any error so callers can safely fall
+ * through to the empty / no-record state without defensive try/catch at the
+ * call site.
+ *
+ * @returns {Promise<{ id: number, status: string, submitted_at: string, reviewed_at: string | null } | null>}
+ */
+export async function getMyVerification() {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user?.id) return null;
+
+    const { data, error } = await supabase
+      .from('verifications')
+      .select('id,status,submitted_at,reviewed_at')
+      .eq('user_id', user.id)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return null;
+    return data || null;
+  } catch {
+    return null; // network / unexpected error — treat as no record
+  }
+}
+
+/**
+ * Uploads the ID photo to Storage, then inserts a PENDING verification row.
+ *
+ * Throws a user-readable Error if the Storage upload fails so the UI can
+ * surface the message without attempting a DB insert with a null photo URL.
+ *
+ * @param {{ nationalIdNumber: string, fullName: string, dateOfBirth: string,
+ *           barangay: string, municipality: string, province: string,
+ *           photoFile: File }} params
+ * @returns {Promise<void>}
+ */
+export async function submitVerification({
+  nationalIdNumber,
+  fullName,
+  dateOfBirth,
+  barangay,
+  municipality,
+  province,
+  photoFile,
+}) {
+  // Resolve the authenticated user id first.
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user?.id) {
+    throw new Error('You must be signed in to submit a verification.');
+  }
+
+  // Build a unique storage path: {user_id}/{timestamp}.{ext}
+  const ext = photoFile.name.split('.').pop() || 'bin';
+  const storagePath = `${user.id}/${Date.now()}.${ext}`;
+
+  // Upload the photo — throw a user-readable error if this step fails.
+  const { error: uploadError } = await supabase.storage
+    .from('verification-ids')
+    .upload(storagePath, photoFile, { upsert: false });
+
+  if (uploadError) {
+    throw new Error(
+      toErrorMessage(uploadError, 'Photo upload failed. Please try again with a smaller file or a different format.')
+    );
+  }
+
+  // Retrieve the public URL (bucket is public so no signed URL needed).
+  const { data: { publicUrl } } = supabase.storage
+    .from('verification-ids')
+    .getPublicUrl(storagePath);
+
+  // Insert the verification row.
+  const address = [barangay, municipality, province].filter(Boolean).join(', ');
+  const { error: insertError } = await supabase.from('verifications').insert({
+    user_id: user.id,
+    full_name: fullName,
+    birthdate: dateOfBirth,
+    address,
+    national_id_number: nationalIdNumber,
+    photo_id_url: publicUrl,
+    status: 'PENDING',
+    submitted_at: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    throw new Error(toErrorMessage(insertError, 'Submission failed. Please try again.'));
+  }
+}
+

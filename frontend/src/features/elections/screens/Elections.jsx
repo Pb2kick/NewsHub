@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Filter, Calendar, MapPin, Search } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Filter, Calendar, MapPin, Search, X } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
 import { ELECTIONS } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
@@ -12,6 +12,10 @@ const ELECTION_FILTERS = ['All', 'National', 'State', 'Local'];
  * @returns {JSX.Element}
  */
 export default function Elections() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const verificationParam = searchParams.get('verification'); // 'submitted' | 'pending' | null
+
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchText, setSearchText] = useState('');
 
@@ -29,9 +33,35 @@ export default function Elections() {
     });
   }, [activeFilter, searchText]);
 
+  /** Dismisses the verification banner by removing the query param. */
+  const dismissBanner = () => navigate('/elections', { replace: true });
+
+  /** Builds the banner message for the active verification state. */
+  const bannerMessage =
+    verificationParam === 'submitted'
+      ? 'Your ID has been submitted and is under review. You will be able to vote once approved.'
+      : verificationParam === 'pending'
+        ? 'Your verification is still pending admin review. Please check back later.'
+        : null;
+
   return (
     <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+
+      {/* Verification status banner */}
+      {bannerMessage && (
+        <div className="flex items-start gap-3 mb-4 sm:mb-6 p-3 sm:p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+          <span className="flex-1">{bannerMessage}</span>
+          <button
+            type="button"
+            onClick={dismissBanner}
+            aria-label="Dismiss"
+            className="shrink-0 text-amber-600 hover:text-amber-800 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
       <header className="mb-5 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-1 sm:mb-2">Active Elections</h1>
         <p className="text-sm sm:text-base text-slate-600">Find your local, state, and national elections.</p>

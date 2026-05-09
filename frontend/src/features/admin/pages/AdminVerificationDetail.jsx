@@ -69,8 +69,9 @@ export default function AdminVerificationDetail() {
               <AdminStatusBadge value={data.status} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <p><span className="text-slate-500">Address:</span> {data.address}</p>
+              <p><span className="text-slate-500">National ID No.:</span> {data.national_id_number || 'N/A'}</p>
               <p><span className="text-slate-500">Birthdate:</span> {data.birthdate || 'N/A'}</p>
+              <p><span className="text-slate-500">Address:</span> {data.address}</p>
               <p><span className="text-slate-500">Submitted:</span> {formatDateTime(data.submitted_at)}</p>
               <p><span className="text-slate-500">Reviewed:</span> {formatDateTime(data.reviewed_at)}</p>
             </div>
