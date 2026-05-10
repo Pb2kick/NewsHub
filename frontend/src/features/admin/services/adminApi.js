@@ -480,25 +480,31 @@ export async function updateCandidate(id, payload) {
   return data;
 }
 
-// ── AI election lookup — proxied through Spring Boot backend ─────────────────
-// (replaces the previous direct Anthropic fetch which caused a CORS error in
-//  production; the API key now lives only in the Render backend environment)
+// ── AI election lookup — Supabase Edge Function ───────────────────────────────
+// CHANGED: was calling the Spring Boot proxy at /api/ai/fetch-ph-election which
+// kept returning 401 because ANTHROPIC_API_KEY was never reliably injected into
+// the Render environment. Now calls the Supabase Edge Function instead — the key
+// lives as a Supabase secret (set once via CLI, no redeploy needed).
 
 /**
- * Fetches the most recent Philippine election and candidates via the
- * backend AI proxy at POST /api/ai/fetch-ph-election.
+ * Fetches the most recent Philippine election and candidates via the Supabase
+ * Edge Function at /functions/v1/fetch-ph-election.
  *
- * The backend forwards the request to Anthropic using the server-side API key
- * and returns the raw Anthropic JSON so this function can parse it identically
- * to the old direct-fetch implementation.
+ * The Edge Function calls Anthropic server-side using a secret API key and
+ * returns the raw Anthropic JSON body — parsed here identically to before.
  *
  * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>}
  */
 export async function fetchLatestPhElection() {
-  const baseUrl = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
+  const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
 
-  const response = await fetch(`${baseUrl}/api/ai/fetch-ph-election`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/fetch-ph-election`, {
     method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${supabaseAnonKey}`,
+      'Content-Type': 'application/json',
+    },
   });
 
   if (!response.ok) {
@@ -538,4 +544,5 @@ export async function fetchLatestPhElection() {
     throw new Error('Unable to parse election data. Invalid JSON returned.');
   }
 }
+
 
