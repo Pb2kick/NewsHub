@@ -1,6 +1,6 @@
 /*
  * Changes:
- * - Added election/candidate CRUD helpers and Anthropic election lookup for admin seeding.
+ * - Added election/candidate CRUD helpers.
  */
 /**
  * SETUP — run these statements in Supabase SQL Editor before deploying:
@@ -478,56 +478,6 @@ export async function updateCandidate(id, payload) {
     throw new Error(toErrorMessage(error, 'Unable to update candidate.'));
   }
   return data;
-}
-
-// ── AI election lookup — Supabase Edge Function ───────────────────────────────
-// CHANGED: Use supabase.functions.invoke so the current user's JWT is sent.
-// The Edge Function defaults to verify_jwt=true, so anon-key fetches return 401.
-
-/**
- * Fetches the most recent Philippine election and candidates via the Supabase
- * Edge Function at /functions/v1/fetch-ph-election.
- *
- * The Edge Function calls Anthropic server-side using a secret API key and
- * returns the raw Anthropic JSON body — parsed here identically to before.
- *
- * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>}
- */
-export async function fetchLatestPhElection() {
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !sessionData?.session?.access_token) {
-    throw new Error('You must be signed in to fetch election data.');
-  }
-
-  const { data: payload, error } = await supabase.functions.invoke('fetch-ph-election', {
-    method: 'POST',
-  });
-
-  if (error) {
-    throw new Error(toErrorMessage(error, 'Unable to fetch election data.'));
-  }
-  const text = Array.isArray(payload?.content)
-    ? payload.content
-        .filter((block) => block?.type === 'text')
-        .map((block) => block.text)
-        .join('\n')
-    : '';
-
-  if (!text) {
-    throw new Error('Unable to parse election data. No text content returned.');
-  }
-
-  const sanitized = text
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/```\s*$/i, '')
-    .trim();
-
-  try {
-    return JSON.parse(sanitized);
-  } catch {
-    throw new Error('Unable to parse election data. Invalid JSON returned.');
-  }
 }
 
 

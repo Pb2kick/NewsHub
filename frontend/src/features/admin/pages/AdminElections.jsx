@@ -1,24 +1,18 @@
 /*
  * Changes:
  * - Added inline add/edit election form with validation and edit actions.
- * - Added AI-powered prefill button for the latest PH election lookup.
+ * - Added inline add/edit election form with validation and edit actions.
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Globe, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
 import { useAdminResource } from '../hooks/useAdminResource';
-import {
-  createElection,
-  deleteElection,
-  fetchLatestPhElection,
-  listElections,
-  updateElection,
-} from '../services/adminApi';
+import { createElection, deleteElection, listElections, updateElection } from '../services/adminApi';
 
 const electionSchema = z.object({
   name: z.string().min(2, 'Name is required'),
@@ -59,11 +53,9 @@ export default function AdminElections() {
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
-  const [fetchError, setFetchError] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
   const form = useForm({
     resolver: zodResolver(electionSchema),
     defaultValues,
@@ -82,7 +74,6 @@ export default function AdminElections() {
   const handleOpenCreate = () => {
     setEditingId(null);
     setFormError('');
-    setFetchError('');
     form.reset(defaultValues);
     setIsFormOpen(true);
   };
@@ -90,7 +81,6 @@ export default function AdminElections() {
   const handleOpenEdit = (item) => {
     setEditingId(item.id);
     setFormError('');
-    setFetchError('');
     form.reset({
       name: item.name || '',
       region: item.region || '',
@@ -99,31 +89,6 @@ export default function AdminElections() {
       status: normalizeStatus(item.status),
     });
     setIsFormOpen(true);
-  };
-
-  const handleFetchLatest = async () => {
-    setFetchError('');
-    setIsFetching(true);
-    try {
-      const result = await fetchLatestPhElection();
-      const election = result?.election;
-      if (!election?.name) {
-        throw new Error('No election data returned from the lookup.');
-      }
-      form.reset({
-        name: election.name || '',
-        region: election.region || '',
-        start_time: election.start_date || '',
-        end_time: election.end_date || '',
-        status: normalizeStatus(election.status),
-      });
-      setEditingId(null);
-      setIsFormOpen(true);
-    } catch (fetchErrorResponse) {
-      setFetchError(fetchErrorResponse?.message || 'Unable to fetch election data.');
-    } finally {
-      setIsFetching(false);
-    }
   };
 
   const onSubmit = async (values) => {
@@ -170,20 +135,10 @@ export default function AdminElections() {
               <Plus className="w-4 h-4" />
               Add Election
             </button>
-            <button
-              type="button"
-              onClick={handleFetchLatest}
-              disabled={isFetching}
-              className="inline-flex items-center gap-2 rounded-lg border border-blue-600 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-60"
-            >
-              {isFetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-              Fetch PH Election
-            </button>
           </div>
         )}
       />
       {message ? <p className="text-sm text-green-700 mb-3">{message}</p> : null}
-      {fetchError ? <p className="text-sm text-rose-600 mb-3">{fetchError}</p> : null}
       {isFormOpen && (
         <form onSubmit={form.handleSubmit(onSubmit)} className="mb-4 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
