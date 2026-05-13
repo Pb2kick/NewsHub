@@ -481,10 +481,8 @@ export async function updateCandidate(id, payload) {
 }
 
 // ── AI election lookup — Supabase Edge Function ───────────────────────────────
-// CHANGED: was calling the Spring Boot proxy at /api/ai/fetch-ph-election which
-// kept returning 401 because ANTHROPIC_API_KEY was never reliably injected into
-// the Render environment. Now calls the Supabase Edge Function instead — the key
-// lives as a Supabase secret (set once via CLI, no redeploy needed).
+// CHANGED: Use supabase.functions.invoke so the current user's JWT is sent.
+// The Edge Function defaults to verify_jwt=true, so anon-key fetches return 401.
 
 /**
  * Fetches the most recent Philippine election and candidates via the Supabase
@@ -496,31 +494,18 @@ export async function updateCandidate(id, payload) {
  * @returns {Promise<{ election: { name: string, region: string, start_date: string, end_date: string, status: string }, candidates: Array }>}
  */
 export async function fetchLatestPhElection() {
-  const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || '';
-  const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
-
-  const response = await fetch(`${supabaseUrl}/functions/v1/fetch-ph-election`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${supabaseAnonKey}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    let errorMessage = `Unable to fetch election data. Status: ${response.status}`;
-    try {
-      const errorBody = await response.json();
-      if (errorBody?.error) {
-        errorMessage = errorBody.error;
-      }
-    } catch {
-      // ignore JSON parse failure on error body — use the default message
-    }
-    throw new Error(errorMessage);
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !sessionData?.session?.access_token) {
+    throw new Error('You must be signed in to fetch election data.');
   }
 
-  const payload = await response.json();
+  const { data: payload, error } = await supabase.functions.invoke('fetch-ph-election', {
+    method: 'POST',
+  });
+
+  if (error) {
+    throw new Error(toErrorMessage(error, 'Unable to fetch election data.'));
+  }
   const text = Array.isArray(payload?.content)
     ? payload.content
         .filter((block) => block?.type === 'text')
