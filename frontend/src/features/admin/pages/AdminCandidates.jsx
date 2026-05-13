@@ -1,7 +1,7 @@
 /*
  * Changes:
- * - Added inline add/edit candidate form with election selector and validation.
- * - Added edit actions while keeping search/delete behavior intact.
+ * - Added candidate image uploader and photo_url handling via Supabase uploads.
+ * - Validates the required image outside React Hook Form on create.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
+import ImageUploader from '../components/ImageUploader';
 import { useAdminResource } from '../hooks/useAdminResource';
 import {
   createCandidate,
@@ -17,6 +18,7 @@ import {
   listCandidates,
   listElections,
   updateCandidate,
+  uploadCandidateImage,
 } from '../services/adminApi';
 
 const candidateSchema = z.object({
@@ -27,7 +29,6 @@ const candidateSchema = z.object({
   bio: z.string().min(10, 'Bio is required'),
   education: z.string().min(2, 'Education is required'),
   experience: z.string().optional().or(z.literal('')),
-  photo_url: z.string().url('Enter a valid URL').optional().or(z.literal('')),
   display_order: z.coerce.number().min(0, 'Display order must be 0 or higher'),
 });
 
@@ -39,7 +40,6 @@ const defaultValues = {
   bio: '',
   education: '',
   experience: '',
-  photo_url: '',
   display_order: 0,
 };
 
@@ -51,6 +51,9 @@ export default function AdminCandidates() {
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageError, setImageError] = useState('');
+  const [isImageUploading, setIsImageUploading] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -92,6 +95,8 @@ export default function AdminCandidates() {
   const handleOpenCreate = () => {
     setEditingId(null);
     setFormError('');
+    setImageUrl('');
+    setImageError('');
     form.reset(defaultValues);
     setIsFormOpen(true);
   };
@@ -99,6 +104,8 @@ export default function AdminCandidates() {
   const handleOpenEdit = (item) => {
     setEditingId(item.id);
     setFormError('');
+    setImageUrl(item.photo_url || '');
+    setImageError('');
     form.reset({
       election_id: item.election_id || '',
       name: item.name || '',
@@ -107,13 +114,16 @@ export default function AdminCandidates() {
       bio: item.bio || '',
       education: item.education || '',
       experience: item.experience || '',
-      photo_url: item.photo_url || '',
       display_order: item.display_order ?? 0,
     });
     setIsFormOpen(true);
   };
 
   const onSubmit = async (values) => {
+    if (!imageUrl && !editingId) {
+      setImageError('Candidate photo is required.');
+      return;
+    }
     setIsSaving(true);
     setFormError('');
     try {
@@ -125,7 +135,7 @@ export default function AdminCandidates() {
         bio: values.bio,
         education: values.education,
         experience: values.experience || '',
-        photo_url: values.photo_url || '',
+        photo_url: imageUrl || '',
         display_order: values.display_order ?? 0,
       };
       if (editingId) {
@@ -215,10 +225,31 @@ export default function AdminCandidates() {
               <label className="block text-xs font-semibold text-slate-600 mb-1">Experience (optional)</label>
               <input {...form.register('experience')} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Photo URL (optional)</label>
-              <input {...form.register('photo_url')} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              {form.formState.errors.photo_url && <p className="text-xs text-rose-600 mt-1">{form.formState.errors.photo_url.message}</p>}
+            <div className="md:col-span-2">
+              <ImageUploader
+                label="Candidate Photo *"
+                value={imageUrl}
+                onChange={(value) => {
+                  setImageUrl(value);
+                  if (!value) {
+                    setImageError('');
+                  }
+                }}
+                error={imageError}
+                isUploading={isImageUploading}
+                onUpload={async (file) => {
+                  setIsImageUploading(true);
+                  try {
+                    const url = await uploadCandidateImage(file);
+                    setImageUrl(url);
+                    setImageError('');
+                  } catch (uploadError) {
+                    setImageError(uploadError?.message || 'Unable to upload image.');
+                  } finally {
+                    setIsImageUploading(false);
+                  }
+                }}
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Display Order</label>

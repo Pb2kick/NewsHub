@@ -1,6 +1,6 @@
 /*
  * Changes:
- * - Added election/candidate CRUD helpers.
+ * - Added election/candidate CRUD helpers and image upload helpers.
  */
 /**
  * SETUP — run these statements in Supabase SQL Editor before deploying:
@@ -201,7 +201,7 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
 export async function listElections() {
   const { data, error } = await supabase
     .from('elections')
-    .select('id,name,region,start_time,end_time,status,created_by_admin_id,is_deleted')
+    .select('id,name,region,start_time,end_time,status,image_url,created_by_admin_id,is_deleted')
     .eq('is_deleted', false)
     .order('start_time', { ascending: true });
 
@@ -377,10 +377,10 @@ export async function submitVerification({
 
 /**
  * Creates a new election row.
- * @param {{ name: string, region: string, start_time: string, end_time: string, status: string }} payload
+ * @param {{ name: string, region: string, start_time: string, end_time: string, status: string, image_url: string }} payload
  * @returns {Promise<any>}
  */
-export async function createElection({ name, region, start_time, end_time, status }) {
+export async function createElection({ name, region, start_time, end_time, status, image_url }) {
   const normalizedStatus = String(status || '').toUpperCase();
   const adminProfile = await getCurrentAdminProfile();
   const { data, error } = await supabase
@@ -391,6 +391,7 @@ export async function createElection({ name, region, start_time, end_time, statu
       start_time,
       end_time,
       status: normalizedStatus,
+      image_url,
       is_deleted: false,
       created_by_admin_id: adminProfile?.id ?? null,
     })
@@ -406,14 +407,14 @@ export async function createElection({ name, region, start_time, end_time, statu
 /**
  * Updates an election row.
  * @param {string | number} id
- * @param {{ name: string, region: string, start_time: string, end_time: string, status: string }} payload
+ * @param {{ name: string, region: string, start_time: string, end_time: string, status: string, image_url: string }} payload
  * @returns {Promise<any>}
  */
-export async function updateElection(id, { name, region, start_time, end_time, status }) {
+export async function updateElection(id, { name, region, start_time, end_time, status, image_url }) {
   const normalizedStatus = String(status || '').toUpperCase();
   const { data, error } = await supabase
     .from('elections')
-    .update({ name, region, start_time, end_time, status: normalizedStatus })
+    .update({ name, region, start_time, end_time, status: normalizedStatus, image_url })
     .eq('id', id)
     .select()
     .single();
@@ -480,6 +481,77 @@ export async function updateCandidate(id, payload) {
     throw new Error(toErrorMessage(error, 'Unable to update candidate.'));
   }
   return data;
+}
+
+/**
+ * Sanitizes uploaded filenames for storage paths.
+ * @param {string} name
+ * @returns {string}
+ */
+function sanitizeFilename(name) {
+  const cleaned = String(name || 'image')
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '');
+  return cleaned || 'image';
+}
+
+/**
+ * Uploads an election image to Supabase Storage and returns the public URL.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+export async function uploadElectionImage(file) {
+  if (!file) {
+    throw new Error('Please select an image to upload.');
+  }
+
+  const safeName = sanitizeFilename(file.name);
+  const path = `elections/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabase
+    .storage
+    .from('election-images')
+    .upload(path, file, { upsert: false });
+
+  if (uploadError) {
+    throw new Error(toErrorMessage(uploadError, 'Image upload failed. Please try again.'));
+  }
+
+  const { data: { publicUrl } } = supabase
+    .storage
+    .from('election-images')
+    .getPublicUrl(path);
+
+  return publicUrl;
+}
+
+/**
+ * Uploads a candidate image to Supabase Storage and returns the public URL.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+export async function uploadCandidateImage(file) {
+  if (!file) {
+    throw new Error('Please select an image to upload.');
+  }
+
+  const safeName = sanitizeFilename(file.name);
+  const path = `candidates/${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabase
+    .storage
+    .from('election-images')
+    .upload(path, file, { upsert: false });
+
+  if (uploadError) {
+    throw new Error(toErrorMessage(uploadError, 'Image upload failed. Please try again.'));
+  }
+
+  const { data: { publicUrl } } = supabase
+    .storage
+    .from('election-images')
+    .getPublicUrl(path);
+
+  return publicUrl;
 }
 
 

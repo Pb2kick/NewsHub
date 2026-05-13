@@ -1,7 +1,7 @@
 /*
  * Changes:
- * - Added inline add/edit election form with validation and edit actions.
- * - Added inline add/edit election form with validation and edit actions.
+ * - Added election image uploader and image_url handling for create/update.
+ * - Validates the required image outside React Hook Form on create.
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -11,8 +11,15 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
+import ImageUploader from '../components/ImageUploader';
 import { useAdminResource } from '../hooks/useAdminResource';
-import { createElection, deleteElection, listElections, updateElection } from '../services/adminApi';
+import {
+  createElection,
+  deleteElection,
+  listElections,
+  updateElection,
+  uploadElectionImage,
+} from '../services/adminApi';
 
 const electionSchema = z.object({
   name: z.string().min(2, 'Name is required'),
@@ -53,6 +60,9 @@ export default function AdminElections() {
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageError, setImageError] = useState('');
+  const [isImageUploading, setIsImageUploading] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -74,6 +84,8 @@ export default function AdminElections() {
   const handleOpenCreate = () => {
     setEditingId(null);
     setFormError('');
+    setImageUrl('');
+    setImageError('');
     form.reset(defaultValues);
     setIsFormOpen(true);
   };
@@ -81,6 +93,8 @@ export default function AdminElections() {
   const handleOpenEdit = (item) => {
     setEditingId(item.id);
     setFormError('');
+    setImageUrl(item.image_url || '');
+    setImageError('');
     form.reset({
       name: item.name || '',
       region: item.region || '',
@@ -92,14 +106,18 @@ export default function AdminElections() {
   };
 
   const onSubmit = async (values) => {
+    if (!imageUrl && !editingId) {
+      setImageError('Election image is required.');
+      return;
+    }
     setIsSaving(true);
     setFormError('');
     try {
       if (editingId) {
-        await updateElection(editingId, values);
+        await updateElection(editingId, { ...values, image_url: imageUrl || '' });
         setMessage('Election updated.');
       } else {
-        await createElection(values);
+        await createElection({ ...values, image_url: imageUrl || '' });
         setMessage('Election added.');
       }
       await reload();
@@ -170,6 +188,32 @@ export default function AdminElections() {
                 <option value="Completed">Completed</option>
               </select>
               {form.formState.errors.status && <p className="text-xs text-rose-600 mt-1">{form.formState.errors.status.message}</p>}
+            </div>
+            <div className="md:col-span-2">
+              <ImageUploader
+                label="Election Image *"
+                value={imageUrl}
+                onChange={(value) => {
+                  setImageUrl(value);
+                  if (!value) {
+                    setImageError('');
+                  }
+                }}
+                error={imageError}
+                isUploading={isImageUploading}
+                onUpload={async (file) => {
+                  setIsImageUploading(true);
+                  try {
+                    const url = await uploadElectionImage(file);
+                    setImageUrl(url);
+                    setImageError('');
+                  } catch (uploadError) {
+                    setImageError(uploadError?.message || 'Unable to upload image.');
+                  } finally {
+                    setIsImageUploading(false);
+                  }
+                }}
+              />
             </div>
           </div>
           {formError ? <p className="text-sm text-rose-600">{formError}</p> : null}
