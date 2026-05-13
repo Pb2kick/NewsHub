@@ -381,6 +381,7 @@ export async function submitVerification({
  * @returns {Promise<any>}
  */
 export async function createElection({ name, region, start_time, end_time, status }) {
+  const normalizedStatus = String(status || '').toUpperCase();
   const adminProfile = await getCurrentAdminProfile();
   const { data, error } = await supabase
     .from('elections')
@@ -389,7 +390,7 @@ export async function createElection({ name, region, start_time, end_time, statu
       region,
       start_time,
       end_time,
-      status,
+      status: normalizedStatus,
       is_deleted: false,
       created_by_admin_id: adminProfile?.id ?? null,
     })
@@ -409,9 +410,10 @@ export async function createElection({ name, region, start_time, end_time, statu
  * @returns {Promise<any>}
  */
 export async function updateElection(id, { name, region, start_time, end_time, status }) {
+  const normalizedStatus = String(status || '').toUpperCase();
   const { data, error } = await supabase
     .from('elections')
-    .update({ name, region, start_time, end_time, status })
+    .update({ name, region, start_time, end_time, status: normalizedStatus })
     .eq('id', id)
     .select()
     .single();
