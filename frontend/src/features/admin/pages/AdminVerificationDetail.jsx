@@ -1,3 +1,8 @@
+/*
+ * Changes:
+ * - Added localStatus to optimistically update the status badge immediately.
+ * - Show a read-only decision note after an admin action instead of the buttons.
+ */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import AdminDataState from '../components/AdminDataState';
@@ -26,6 +31,7 @@ export default function AdminVerificationDetail() {
   const { verificationId } = useParams();
   const [message, setMessage] = useState('');
   const [decisionOutcome, setDecisionOutcome] = useState(null);
+  const [localStatus, setLocalStatus] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const loadDetail = useCallback(() => getVerificationById(verificationId), [verificationId]);
   const { data, loading, error, reload } = useAdminResource(loadDetail, [verificationId]);
@@ -43,6 +49,7 @@ export default function AdminVerificationDetail() {
         throw new Error('Unable to resolve admin identity.');
       }
       await updateVerificationStatus({ verificationId, status, adminUserId: admin.id });
+      setLocalStatus(status);
       setDecisionOutcome(status);
       setMessage(`Verification ${status.toLowerCase()} successfully.`);
       await reload();
@@ -70,7 +77,7 @@ export default function AdminVerificationDetail() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">{data.full_name}</h2>
-              <AdminStatusBadge value={data.status} />
+              <AdminStatusBadge value={localStatus ?? data?.status} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <p><span className="text-slate-500">National ID No.:</span> {data.national_id_number || 'N/A'}</p>
@@ -84,10 +91,16 @@ export default function AdminVerificationDetail() {
               <a href={data.photo_id_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 break-all">{data.photo_id_url}</a>
             </div>
             {isPending ? (
-              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                <button type="button" disabled={isSaving} onClick={() => handleDecision('APPROVED')} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-60">Approve</button>
-                <button type="button" disabled={isSaving} onClick={() => handleDecision('REJECTED')} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60">Reject</button>
-              </div>
+              localStatus ? (
+                <p className="text-sm text-slate-500 italic pt-2 border-t border-slate-100">
+                  Decision recorded. This verification has been {localStatus.toLowerCase()}.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                  <button type="button" disabled={isSaving} onClick={() => handleDecision('APPROVED')} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-60">Approve</button>
+                  <button type="button" disabled={isSaving} onClick={() => handleDecision('REJECTED')} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60">Reject</button>
+                </div>
+              )
             ) : null}
           </div>
         ) : null}
