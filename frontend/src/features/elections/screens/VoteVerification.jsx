@@ -37,6 +37,7 @@ import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShe
 import { ELECTIONS } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
 import { getMyVerification, submitVerification } from '../../admin/services/adminApi';
+import { supabase } from '../../shared/services/supabaseClient'; // NEW
 
 // ── Zod schema — text fields only; file checked separately ───────────────────
 const verificationSchema = z.object({
@@ -177,8 +178,10 @@ export default function VoteVerification() {
   // ── Check existing verification on mount ─────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    getMyVerification().then((record) => {
-      if (cancelled) return;
+    let channel; // NEW
+    const run = async () => { // NEW
+      const record = await getMyVerification(); // NEW
+      if (cancelled) return; // NEW
       const status = record?.status ? String(record.status).toUpperCase() : null;
       if (status === 'PENDING') {
         // Redirect immediately — no need to show any UI
@@ -187,8 +190,41 @@ export default function VoteVerification() {
       }
       setVerificationStatus(status); // APPROVED | REJECTED | null
       setStatusLoading(false);
-    });
-    return () => { cancelled = true; };
+
+      const { data: { user } } = await supabase.auth.getUser(); // NEW
+      if (cancelled || !user?.id) return; // NEW
+
+      channel = supabase // NEW
+        .channel(`verification-status-${user.id}`) // NEW
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'verifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            if (cancelled) return;
+            const newStatus = payload.new?.status
+              ? String(payload.new.status).toUpperCase()
+              : null;
+            if (newStatus === 'PENDING') {
+              navigate('/elections?verification=pending', { replace: true });
+              return;
+            }
+            setVerificationStatus(newStatus); // live update: APPROVED or REJECTED
+          }
+        )
+        .subscribe(); // NEW
+    }; // NEW
+    run(); // NEW
+    return () => {
+      cancelled = true; // NEW
+      if (channel) { // NEW
+        supabase.removeChannel(channel); // NEW
+      } // NEW
+    };
   }, [navigate]);
 
   // ── File input handler ────────────────────────────────────────────────────

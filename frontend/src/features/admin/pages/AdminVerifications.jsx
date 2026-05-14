@@ -1,10 +1,14 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react'; // NEW
 import { Link } from 'react-router-dom';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
 import { useAdminResource } from '../hooks/useAdminResource';
 import { listVerifications } from '../services/adminApi';
+import { supabase } from '../../shared/services/supabaseClient'; // NEW
+
+// SETUP NOTE: Enable Realtime on public.verifications (Database -> Replication) // NEW
+// and confirm RLS allows authenticated users to SELECT their own row. // NEW
 
 /**
  * Renders verification queue with status filtering.
@@ -14,7 +18,25 @@ export default function AdminVerifications() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('ALL');
   const loadVerifications = useCallback(() => listVerifications({ search, status }), [search, status]);
-  const { data, loading, error } = useAdminResource(loadVerifications, [search, status]);
+  const { data, loading, error, reload } = useAdminResource(loadVerifications, [search, status]); // NEW
+
+  useEffect(() => { // NEW
+    const channel = supabase // NEW
+      .channel('admin-verifications-feed') // NEW
+      .on( // NEW
+        'postgres_changes', // NEW
+        { event: '*', schema: 'public', table: 'verifications' }, // NEW
+        () => { // NEW
+          reload(); // NEW
+        } // NEW
+      ) // NEW
+      .subscribe(); // NEW
+
+    return () => { // NEW
+      supabase.removeChannel(channel); // NEW
+    }; // NEW
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // NEW
 
   return (
     <div>

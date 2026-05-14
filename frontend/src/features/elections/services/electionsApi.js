@@ -29,7 +29,7 @@ function mapElection(row) {
     date: formatElectionDate(row.start_time),
     status: normalizeStatus(row.status),
     candidatesCount: 0,
-    image: '',
+    image: row.image_url || '',
   };
 }
 
@@ -54,7 +54,7 @@ export async function getElections() {
   try {
     const { data, error } = await supabase
       .from('elections')
-      .select('id,name,region,start_time,end_time,status,is_deleted')
+      .select('id,name,region,start_time,end_time,status,image_url,is_deleted')
       .eq('is_deleted', false)
       .order('start_time', { ascending: true });
 
@@ -69,7 +69,7 @@ export async function getElectionById(id) {
   try {
     const { data, error } = await supabase
       .from('elections')
-      .select('id,name,region,start_time,end_time,status,is_deleted')
+      .select('id,name,region,start_time,end_time,status,image_url,is_deleted')
       .eq('id', id)
       .eq('is_deleted', false)
       .maybeSingle();
