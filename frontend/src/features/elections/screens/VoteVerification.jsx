@@ -131,6 +131,7 @@ export default function VoteVerification() {
   // Status-check state
   const [statusLoading, setStatusLoading] = useState(true);
   const [verificationStatus, setVerificationStatus] = useState(null); // null = no record
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   // Form state
   const [idFile, setIdFile] = useState(null);
@@ -178,10 +179,14 @@ export default function VoteVerification() {
   // ── Check existing verification on mount ─────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    let channel; // NEW
-    const run = async () => { // NEW
-      const record = await getMyVerification(); // NEW
-      if (cancelled) return; // NEW
+    const run = async () => {
+      const [record, authResponse] = await Promise.all([
+        getMyVerification(),
+        supabase.auth.getUser(),
+      ]);
+      if (cancelled) return;
+      const userId = authResponse.data?.user?.id || null;
+      setCurrentUserId(userId);
       const status = record?.status ? String(record.status).toUpperCase() : null;
       if (status === 'PENDING') {
         // Redirect immediately — no need to show any UI
@@ -190,42 +195,39 @@ export default function VoteVerification() {
       }
       setVerificationStatus(status); // APPROVED | REJECTED | null
       setStatusLoading(false);
-
-      const { data: { user } } = await supabase.auth.getUser(); // NEW
-      if (cancelled || !user?.id) return; // NEW
-
-      channel = supabase // NEW
-        .channel(`verification-status-${user.id}`) // NEW
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'verifications',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            if (cancelled) return;
-            const newStatus = payload.new?.status
-              ? String(payload.new.status).toUpperCase()
-              : null;
-            if (newStatus === 'PENDING') {
-              navigate('/elections?verification=pending', { replace: true });
-              return;
-            }
-            setVerificationStatus(newStatus); // live update: APPROVED or REJECTED
-          }
-        )
-        .subscribe(); // NEW
-    }; // NEW
-    run(); // NEW
-    return () => {
-      cancelled = true; // NEW
-      if (channel) { // NEW
-        supabase.removeChannel(channel); // NEW
-      } // NEW
     };
+    run();
+    return () => { cancelled = true; };
   }, [navigate]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const channel = supabase
+      .channel(`verification-status-${currentUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'verifications',
+          filter: `user_id=eq.${currentUserId}`,
+        },
+        (payload) => {
+          const newStatus = payload.new?.status
+            ? String(payload.new.status).toUpperCase()
+            : null;
+          if (newStatus === 'PENDING') {
+            navigate('/elections?verification=pending', { replace: true });
+            return;
+          }
+          setVerificationStatus(newStatus);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [currentUserId, navigate]);
 
   // ── File input handler ────────────────────────────────────────────────────
   const handleFileChange = (event) => {

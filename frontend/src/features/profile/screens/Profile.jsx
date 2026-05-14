@@ -134,6 +134,36 @@ export default function Profile() {
   }, [navigate]);
 
   useEffect(() => {
+    if (!userData.id) return;
+
+    const channel = supabase
+      .channel(`profile-verification-${userData.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'verifications',
+          filter: `user_id=eq.${userData.id}`,
+        },
+        (payload) => {
+          const newStatus = payload.new?.status
+            ? String(payload.new.status).toUpperCase()
+            : null;
+          if (!newStatus) return;
+          setVerificationStatus(newStatus);
+          setUserData((prev) => ({
+            ...prev,
+            verified: newStatus === 'APPROVED',
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [userData.id]);
+
+  useEffect(() => {
     return () => {
       if (currentPreviewUrlRef.current) {
         URL.revokeObjectURL(currentPreviewUrlRef.current);

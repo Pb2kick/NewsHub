@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'; // NEW
+import React, { useCallback, useEffect, useRef, useState } from 'react'; // NEW
 import { Link } from 'react-router-dom';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
@@ -19,6 +19,11 @@ export default function AdminVerifications() {
   const [status, setStatus] = useState('ALL');
   const loadVerifications = useCallback(() => listVerifications({ search, status }), [search, status]);
   const { data, loading, error, reload } = useAdminResource(loadVerifications, [search, status]); // NEW
+  const reloadRef = useRef(reload); // NEW
+
+  useEffect(() => { // NEW
+    reloadRef.current = reload; // NEW
+  }); // NEW
 
   useEffect(() => { // NEW
     const channel = supabase // NEW
@@ -27,7 +32,7 @@ export default function AdminVerifications() {
         'postgres_changes', // NEW
         { event: '*', schema: 'public', table: 'verifications' }, // NEW
         () => { // NEW
-          reload(); // NEW
+          reloadRef.current(); // NEW
         } // NEW
       ) // NEW
       .subscribe(); // NEW

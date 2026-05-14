@@ -25,6 +25,7 @@ function formatDateTime(value) {
 export default function AdminVerificationDetail() {
   const { verificationId } = useParams();
   const [message, setMessage] = useState('');
+  const [decisionOutcome, setDecisionOutcome] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const loadDetail = useCallback(() => getVerificationById(verificationId), [verificationId]);
   const { data, loading, error, reload } = useAdminResource(loadDetail, [verificationId]);
@@ -34,6 +35,7 @@ export default function AdminVerificationDetail() {
   /** Applies the selected review decision to current verification. */
   const handleDecision = async (status) => {
     setMessage('');
+    setDecisionOutcome(null);
     setIsSaving(true);
     try {
       const admin = await getCurrentAdminProfile();
@@ -41,9 +43,11 @@ export default function AdminVerificationDetail() {
         throw new Error('Unable to resolve admin identity.');
       }
       await updateVerificationStatus({ verificationId, status, adminUserId: admin.id });
+      setDecisionOutcome(status);
       setMessage(`Verification ${status.toLowerCase()} successfully.`);
       await reload();
     } catch (saveError) {
+      setDecisionOutcome('ERROR');
       setMessage(saveError?.message || 'Unable to update verification.');
     } finally {
       setIsSaving(false);
@@ -58,7 +62,7 @@ export default function AdminVerificationDetail() {
         actions={<Link to="/admin/verifications" className="text-sm text-blue-600 hover:text-blue-700">Back to list</Link>}
       />
 
-      {message ? <p className={`text-sm mb-4 ${message.includes('successfully') ? 'text-green-700' : 'text-red-600'}`}>{message}</p> : null}
+      {message ? <p className={`text-sm mb-4 ${decisionOutcome === 'APPROVED' ? 'text-green-700' : 'text-red-600'}`}>{message}</p> : null}
       <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
         <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && !data} emptyText="Verification not found." />
 
