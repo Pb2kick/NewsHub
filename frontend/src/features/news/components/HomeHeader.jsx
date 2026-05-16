@@ -1,8 +1,9 @@
 import React, { useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, ChevronDown, Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
 import GlobalSearchDropdown from './GlobalSearchDropdown';
+import NotificationBell from './NotificationBell';
 import newshubLogo from '../../../assets/newshub-logo.png';
 
 /**
@@ -45,6 +46,11 @@ export default function HomeHeader(props) {
     setIsSearchOpen,
     // Location context forwarded to GlobalSearchDropdown for result scoping
     locationContext,
+    // Notification props
+    notifications = [],
+    unreadCount   = 0,
+    markOneRead,
+    markAllRead,
   } = props;
 
   function handleSearchChange(event) {
@@ -100,9 +106,12 @@ export default function HomeHeader(props) {
               onSelectLocation={setUserLocationFromSearch}
               onUseCurrentLocation={useCurrentUserLocation}
             />
-            <button type="button" className="w-9 h-9 rounded-full border border-slate-200 text-slate-600 grid place-items-center hover:bg-slate-100">
-              <Bell className="w-4 h-4" />
-            </button>
+            <NotificationBell
+              notifications={notifications}
+              unreadCount={unreadCount}
+              markOneRead={markOneRead}
+              markAllRead={markAllRead}
+            />
             <div ref={setProfileMenuElement} className="relative border-l border-slate-200 pl-2 sm:pl-4">
               <button
                 type="button"

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import HomeFooter from '../../news/components/HomeFooter';
 import HomeHeader from '../../news/components/HomeHeader';
 import { useLocationNews } from '../../news/hooks/useLocationNews';
+import { useNotifications } from '../../news/hooks/useNotifications';
 import { useProfileMenu } from '../../profile/hooks/useProfileMenu';
 import {
   NEWS_CATEGORY_ELECTIONS,
@@ -41,6 +42,19 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     profileInitials,
   } = useProfileMenu();
   const { isAdminViewMode } = useAdminViewMode();
+
+  // ── Resolve current user id for notifications ────────────────────────────
+  const [currentUserId, setCurrentUserId] = useState(null);
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (active) setCurrentUserId(data?.user?.id || null);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const { notifications, unreadCount, markOneRead, markAllRead } =
+    useNotifications(currentUserId);
 
   // Search state — shared between desktop and mobile inputs.
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,6 +106,10 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
         isSearchOpen={isSearchOpen}
         setIsSearchOpen={setIsSearchOpen}
         locationContext={{ selectedLocation, area, country }}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        markOneRead={markOneRead}
+        markAllRead={markAllRead}
       />
 
       <main className="flex-1 w-full">{children}</main>
