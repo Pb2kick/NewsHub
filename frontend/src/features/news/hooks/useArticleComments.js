@@ -179,19 +179,33 @@ export function useArticleComments(articleId, articleTitle = '') {
       setError(null);
       const displayName = getDisplayName(currentUser);
 
-      // ── Fetch (and cache) the commenter's profile photo URL ──────────────
+      // ── Resolve the commenter's profile photo URL ────────────────────────
+      // Priority order:
+      //   1. auth user_metadata.profile_photo_url  (already in memory, no round-trip)
+      //   2. public.users.profile_photo_url         (DB query, cached after first lookup)
+      // Both sources are updated when the user uploads a photo, but auth metadata
+      // is checked first so initials never show when a photo actually exists.
       let photoUrl = '';
       if (photoUrlCacheRef.current === null) {
-        const { data: userRow } = await supabase
-          .from('users')
-          .select('profile_photo_url')
-          .eq('email', currentUser.email)
-          .maybeSingle();
-        photoUrl = userRow?.profile_photo_url || '';
+        // Source 1: auth metadata (immediate, no network call)
+        const metaUrl = (currentUser.user_metadata?.profile_photo_url || '').trim();
+        if (metaUrl) {
+          photoUrl = metaUrl;
+        } else {
+          // Source 2: public.users table (fallback for accounts where metadata
+          //           was not updated in sync with the DB row)
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('profile_photo_url')
+            .eq('email', currentUser.email)
+            .maybeSingle();
+          photoUrl = (userRow?.profile_photo_url || '').trim();
+        }
         photoUrlCacheRef.current = photoUrl;
       } else {
         photoUrl = photoUrlCacheRef.current;
       }
+
 
       // ── Insert comment row ───────────────────────────────────────────────
       const { data, error: insertError } = await supabase
