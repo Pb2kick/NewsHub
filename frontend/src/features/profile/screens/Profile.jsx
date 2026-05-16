@@ -163,6 +163,32 @@ export default function Profile() {
     return () => { supabase.removeChannel(channel); };
   }, [userData.id]);
 
+  /*
+   * CHANGE: Added polling safety net for PENDING verification status.
+   * Polls getMyVerification() every 8 s while verificationStatus === 'PENDING'.
+   * Works immediately regardless of whether the Supabase Realtime SQL has been
+   * run. The Realtime subscription above takes over (instant updates) once the
+   * SQL is executed, reducing this to a fallback.
+   * The dependency array [verificationStatus] ensures the interval is cleared
+   * both on unmount AND when verificationStatus changes away from 'PENDING'.
+   */
+  useEffect(() => {
+    if (verificationStatus !== 'PENDING') return;
+    const interval = setInterval(async () => {
+      const record = await getMyVerification();
+      if (!record) return;
+      const newStatus = String(record.status).toUpperCase();
+      if (newStatus !== 'PENDING') {
+        setVerificationStatus(newStatus);
+        setUserData((prev) => ({
+          ...prev,
+          verified: newStatus === 'APPROVED',
+        }));
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [verificationStatus]);
+
   useEffect(() => {
     return () => {
       if (currentPreviewUrlRef.current) {

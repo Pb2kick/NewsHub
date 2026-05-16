@@ -145,22 +145,71 @@ export function useLocationNews() {
     setIsDetecting(true);
     setLocationError('');
 
+    /*
+     * CHANGES to this geolocation block:
+     * 1. timeout increased from 8000 → 20000 ms — mobile GPS indoors can take
+     *    15-30 s for a first fix; 8 s was consistently too short.
+     * 2. Success callback uses a SEPARATE AbortController (nominatimAbort) for
+     *    the Nominatim fetch so the outer cleanup (abortController.abort()) does
+     *    NOT cancel an in-flight Nominatim request on re-render.  Previously both
+     *    used the same signal, causing the fetch to silently abort and fall back.
+     * 3. Error callback now tries ipapi.co (free, no API key) as an IP-based
+     *    fallback before setting the 'Location not yet resolved' sentinel.
+     *    The fetch is guarded by abortController.signal so it is cancelled on unmount.
+     */
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const { latitude, longitude } = position.coords;
-        resolveLocationDetails(latitude, longitude, abortController.signal).then((details) => {
+        // Separate controller — outer abort will NOT kill this Nominatim request.
+        const nominatimAbort = new AbortController();
+        try {
+          const details = await resolveLocationDetails(latitude, longitude, nominatimAbort.signal);
           if (!abortController.signal.aborted) {
             setUserLocationDetails(details);
             setIsDetecting(false);
           }
-        });
+        } catch {
+          if (!abortController.signal.aborted) {
+            setUserLocationDetails(fallbackUserLocation());
+            setIsDetecting(false);
+          }
+        }
       },
-      () => {
+      async () => {
+        // GPS timed out or was denied — try IP-based location as fallback.
+        if (abortController.signal.aborted) return;
+        try {
+          const res = await fetch('https://ipapi.co/json/', {
+            signal: abortController.signal,
+          });
+          if (res.ok) {
+            const ip = await res.json();
+            const area = ip.city || ip.region || '';
+            const country = ip.country_name || '';
+            if (area && country) {
+              setUserLocationDetails({
+                area,
+                country,
+                label: `${area}, ${country}`,
+                latitude: ip.latitude ?? null,
+                longitude: ip.longitude ?? null,
+              });
+              setIsDetecting(false);
+              return;
+            }
+          }
+        } catch {
+          // IP fallback also failed — fall through to hardcoded sentinel below.
+          if (abortController.signal.aborted) return;
+        }
         setUserLocationDetails(fallbackUserLocation());
-        setLocationError('Location access denied. Using approximate location.');
+        setLocationError(
+          'Could not detect location automatically. ' +
+          'Search for your city using the search box.'
+        );
         setIsDetecting(false);
       },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+      { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 }
     );
 
     return () => abortController.abort();
