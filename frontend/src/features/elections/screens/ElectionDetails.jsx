@@ -100,12 +100,7 @@ export default function ElectionDetails() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-slate-900">Candidates</h2>
-        <Link to={`/elections/${election.id}/verify`} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700">
-          Verify to Vote
-        </Link>
-      </div>
+      <h2 className="text-xl font-bold text-slate-900 mb-4">Candidates</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {candidates.map((candidate) => (

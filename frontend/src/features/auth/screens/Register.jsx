@@ -165,14 +165,29 @@ export default function Register() {
 
   if (isSuccess) {
     return (
-      <div className="min-h-screen bg-muted/30 flex flex-col items-center justify-center p-6">
-        <div className="bg-card p-10 rounded-3xl shadow-lg border border-border/50 max-w-md w-full text-center space-y-6">
-          <div className="mx-auto w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center">
-            <CheckCircle2 className="h-10 w-10" />
+      <div
+        className="min-h-screen relative flex flex-col items-center justify-center p-6 overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1a1144 40%, #0c1a45 100%)' }}
+      >
+        <style>{`
+          @keyframes nh-float-a { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(-28px,-36px) scale(1.08)} }
+          @keyframes nh-float-b { 0%,100%{transform:translate(0,0) scale(1)} 50%{transform:translate(22px,28px) scale(0.94)} }
+          .nh-orb-a{animation:nh-float-a 9s ease-in-out infinite}
+          .nh-orb-b{animation:nh-float-b 12s ease-in-out infinite}
+        `}</style>
+        <div className="nh-orb-a pointer-events-none absolute -top-36 -left-36 w-[420px] h-[420px] rounded-full" style={{background:'radial-gradient(circle,rgba(59,130,246,0.45) 0%,transparent 70%)'}} />
+        <div className="nh-orb-b pointer-events-none absolute -bottom-48 -right-48 w-[540px] h-[540px] rounded-full" style={{background:'radial-gradient(circle,rgba(99,102,241,0.38) 0%,transparent 70%)'}} />
+        <div className="pointer-events-none absolute inset-0" style={{backgroundImage:'radial-gradient(rgba(255,255,255,0.08) 1px,transparent 1px)',backgroundSize:'32px 32px'}} />
+        <div
+          className="relative p-10 rounded-3xl shadow-2xl max-w-md w-full text-center space-y-6"
+          style={{background:'rgba(255,255,255,0.06)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.12)'}}
+        >
+          <div className="mx-auto w-16 h-16 rounded-full flex items-center justify-center" style={{background:'rgba(59,130,246,0.25)',border:'1px solid rgba(99,102,241,0.4)'}}>
+            <CheckCircle2 className="h-10 w-10 text-blue-300" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-foreground">Registration Complete</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Your voter profile has been securely created. Redirecting to login...</p>
+            <h2 className="text-2xl font-bold tracking-tight text-white">Registration Complete</h2>
+            <p className="mt-2 text-sm text-blue-200/70">Your voter profile has been securely created. Redirecting to login...</p>
           </div>
         </div>
       </div>
@@ -180,48 +195,95 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+    <div
+      className="min-h-screen relative flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8 overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1a1144 40%, #0c1a45 100%)' }}
+    >
+      {/* ── Keyframe animations ───────────────────────────────────────────── */}
+      <style>{`
+        @keyframes nh-float-a {
+          0%, 100% { transform: translate(0px,  0px) scale(1);    }
+          50%       { transform: translate(-28px, -36px) scale(1.08); }
+        }
+        @keyframes nh-float-b {
+          0%, 100% { transform: translate(0px, 0px) scale(1);   }
+          50%       { transform: translate(22px, 28px) scale(0.94); }
+        }
+        @keyframes nh-float-c {
+          0%   { transform: translate(0px,  0px);  }
+          33%  { transform: translate(14px, -18px); }
+          66%  { transform: translate(-8px,  10px); }
+          100% { transform: translate(0px,  0px);  }
+        }
+        @keyframes nh-float-d {
+          0%, 100% { transform: translate(0px, 0px) scale(1);   }
+          50%       { transform: translate(-18px, 24px) scale(1.05); }
+        }
+        .nh-orb-a { animation: nh-float-a  9s ease-in-out infinite; }
+        .nh-orb-b { animation: nh-float-b 12s ease-in-out infinite; }
+        .nh-orb-c { animation: nh-float-c  7s ease-in-out infinite; }
+        .nh-orb-d { animation: nh-float-d 15s ease-in-out infinite reverse; }
+      `}</style>
+
+      {/* ── Background orbs ───────────────────────────────────────────────── */}
+      <div className="nh-orb-a pointer-events-none absolute -top-36 -left-36 w-[420px] h-[420px] rounded-full" style={{background:'radial-gradient(circle,rgba(59,130,246,0.45) 0%,transparent 70%)'}} />
+      <div className="nh-orb-b pointer-events-none absolute -bottom-48 -right-48 w-[540px] h-[540px] rounded-full" style={{background:'radial-gradient(circle,rgba(99,102,241,0.38) 0%,transparent 70%)'}} />
+      <div className="nh-orb-c pointer-events-none absolute top-1/2 left-1/4 w-72 h-72 rounded-full" style={{background:'radial-gradient(circle,rgba(6,182,212,0.22) 0%,transparent 70%)'}} />
+      <div className="nh-orb-d pointer-events-none absolute -top-16 right-1/4 w-80 h-80 rounded-full" style={{background:'radial-gradient(circle,rgba(139,92,246,0.28) 0%,transparent 70%)'}} />
+
+      {/* ── Dot-grid overlay ──────────────────────────────────────────────── */}
+      <div className="pointer-events-none absolute inset-0" style={{backgroundImage:'radial-gradient(rgba(255,255,255,0.08) 1px,transparent 1px)',backgroundSize:'32px 32px'}} />
+
+      {/* ── Icon + heading ────────────────────────────────────────────────── */}
+      <div className="relative sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center mb-6">
-          <div className="h-12 w-12 bg-primary text-primary-foreground rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
-            <ShieldCheck className="h-6 w-6" />
+          <div className="relative h-12 w-12">
+            <div className="absolute inset-0 rounded-xl blur-lg opacity-70" style={{background:'linear-gradient(135deg,#3b82f6,#6366f1)'}} />
+            <div className="relative h-12 w-12 rounded-xl flex items-center justify-center" style={{background:'linear-gradient(135deg,#3b82f6,#6366f1)'}}>
+              <ShieldCheck className="h-6 w-6 text-white" />
+            </div>
           </div>
         </div>
-        <h2 className="text-center text-2xl/9 font-bold tracking-tight text-foreground">Voter Registration</h2>
-        <p className="mt-2 text-center text-sm/6 text-muted-foreground max-w-sm mx-auto">
+        <h2 className="text-center text-2xl font-bold tracking-tight text-white">Voter Registration</h2>
+        <p className="mt-2 text-center text-sm text-blue-200/70 max-w-sm mx-auto">
           Create your civic identity to participate in secure and verifiable elections.
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-[500px]">
-        <div className="bg-card px-6 py-8 shadow-sm border border-border/50 rounded-2xl sm:px-10">
+      {/* ── Form card ─────────────────────────────────────────────────────── */}
+      <div className="relative mt-8 sm:mx-auto sm:w-full sm:max-w-[500px]">
+        <div
+          className="px-6 py-8 rounded-2xl shadow-2xl sm:px-10"
+          style={{background:'rgba(255,255,255,0.06)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.12)'}}
+        >
           <Link
             to="/login"
-            className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground mb-6 transition-colors"
+            className="inline-flex items-center text-sm font-medium text-white/50 hover:text-white/80 mb-6 transition-colors"
           >
             <ChevronLeft className="mr-1 h-4 w-4" />
             Back to sign in
           </Link>
 
           {serverError && (
-            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-start gap-3 text-destructive">
+            <div className="mb-6 p-4 rounded-xl bg-red-500/20 border border-red-400/30 flex items-start gap-3 text-red-300">
               <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
               <p className="text-sm font-medium">{serverError}</p>
             </div>
           )}
 
           {infoMessage && (
-            <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">
+            <div className="mb-6 p-4 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-200 text-sm font-medium">
               {infoMessage}
             </div>
           )}
 
           <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
+            {/* Full Name */}
             <div>
-              <label htmlFor="fullName" className="block text-sm/6 font-medium text-foreground">Legal Full Name</label>
+              <label htmlFor="fullName" className="block text-sm font-medium text-white/80">Legal Full Name</label>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <User className="h-5 w-5 text-muted-foreground" />
+                  <User className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="fullName"
@@ -229,112 +291,115 @@ export default function Register() {
                   {...register('fullName')}
                   autoComplete="name"
                   maxLength={100}
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
-                    errors.fullName ? 'ring-destructive focus:ring-destructive' : 'ring-border focus:ring-primary'
-                  }`}
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${errors.fullName ? 'ring-red-400/60 focus:ring-red-400' : 'ring-white/20 focus:ring-blue-400'}`}
+                  style={{background:'rgba(255,255,255,0.08)'}}
                   placeholder="John Doe"
                 />
               </div>
-              {errors.fullName && <p className="mt-1 text-sm text-destructive font-medium">{errors.fullName.message}</p>}
+              {errors.fullName && <p className="mt-1 text-sm text-red-400 font-medium">{errors.fullName.message}</p>}
             </div>
 
+            {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm/6 font-medium text-foreground">Email address</label>
+              <label htmlFor="email" className="block text-sm font-medium text-white/80">Email address</label>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Mail className="h-5 w-5 text-muted-foreground" />
+                  <Mail className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="email"
                   type="email"
                   {...register('email')}
                   autoComplete="email"
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
-                    errors.email ? 'ring-destructive focus:ring-destructive' : 'ring-border focus:ring-primary'
-                  }`}
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${errors.email ? 'ring-red-400/60 focus:ring-red-400' : 'ring-white/20 focus:ring-blue-400'}`}
+                  style={{background:'rgba(255,255,255,0.08)'}}
                   placeholder="name@example.com"
                 />
               </div>
-              {errors.email && <p className="mt-1 text-sm text-destructive font-medium">{errors.email.message}</p>}
+              {errors.email && <p className="mt-1 text-sm text-red-400 font-medium">{errors.email.message}</p>}
             </div>
 
+            {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-sm/6 font-medium text-foreground">Password</label>
+              <label htmlFor="password" className="block text-sm font-medium text-white/80">Password</label>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Lock className="h-5 w-5 text-muted-foreground" />
+                  <Lock className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   {...register('password')}
                   autoComplete="new-password"
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
-                    errors.password ? 'ring-destructive focus:ring-destructive' : 'ring-border focus:ring-primary'
-                  }`}
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${errors.password ? 'ring-red-400/60 focus:ring-red-400' : 'ring-white/20 focus:ring-blue-400'}`}
+                  style={{background:'rgba(255,255,255,0.08)'}}
                   placeholder="••••••••"
                 />
               </div>
-              {errors.password && <p className="mt-1 text-sm text-destructive font-medium">{errors.password.message}</p>}
+              {errors.password && <p className="mt-1 text-sm text-red-400 font-medium">{errors.password.message}</p>}
             </div>
 
+            {/* Confirm Password */}
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm/6 font-medium text-foreground">Confirm Password</label>
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-white/80">Confirm Password</label>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Lock className="h-5 w-5 text-muted-foreground" />
+                  <Lock className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="confirmPassword"
                   type={showPassword ? 'text' : 'password'}
                   {...register('confirmPassword')}
                   autoComplete="new-password"
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
-                    errors.confirmPassword ? 'ring-destructive focus:ring-destructive' : 'ring-border focus:ring-primary'
-                  }`}
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${errors.confirmPassword ? 'ring-red-400/60 focus:ring-red-400' : 'ring-white/20 focus:ring-blue-400'}`}
+                  style={{background:'rgba(255,255,255,0.08)'}}
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-white/40 hover:text-white/70 transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
-              {errors.confirmPassword && <p className="mt-1 text-sm text-destructive font-medium">{errors.confirmPassword.message}</p>}
+              {errors.confirmPassword && <p className="mt-1 text-sm text-red-400 font-medium">{errors.confirmPassword.message}</p>}
             </div>
 
+            {/* Attestation */}
             <div className="relative flex items-start mt-6">
               <div className="flex h-6 items-center">
                 <input
                   id="attestation"
                   type="checkbox"
                   {...register('attestation')}
-                  className="h-5 w-5 rounded-md border-border bg-background text-primary focus:ring-primary focus:ring-offset-background cursor-pointer"
+                  className="h-5 w-5 rounded-md border-white/20 bg-white/10 text-blue-500 focus:ring-blue-400 focus:ring-offset-0 cursor-pointer"
                 />
               </div>
-              <div className="ml-3 text-sm/6">
-                <label htmlFor="attestation" className="font-medium text-foreground cursor-pointer">Eligibility Attestation</label>
-                <p className="text-muted-foreground">
+              <div className="ml-3 text-sm">
+                <label htmlFor="attestation" className="font-medium text-white/80 cursor-pointer">Eligibility Attestation</label>
+                <p className="text-white/50">
                   I swear or affirm under penalty of perjury that I am a citizen eligible to vote, and the information provided is true.
                 </p>
-                  {errors.attestation && (
-                    <p className="mt-1 text-sm text-destructive font-medium">
-                      You must confirm you are eligible to vote.
-                    </p>
-                  )}
+                {errors.attestation && (
+                  <p className="mt-1 text-sm text-red-400 font-medium">You must confirm you are eligible to vote.</p>
+                )}
               </div>
             </div>
 
+            {/* Submit */}
             <div className="pt-2">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3.5 text-sm/6 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-3.5 text-sm font-semibold text-white shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                style={{
+                  background: isLoading ? 'rgba(59,130,246,0.7)' : 'linear-gradient(135deg,#3b82f6 0%,#6366f1 100%)',
+                  boxShadow: '0 4px 24px rgba(99,102,241,0.4)',
+                }}
               >
                 {isLoading ? (
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 ) : (
                   'Create Voter Account'
                 )}

@@ -196,19 +196,95 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-muted/30 flex flex-col justify-center px-6 py-12 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+    <div
+      className="min-h-screen relative flex flex-col justify-center px-6 py-12 lg:px-8 overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1a1144 40%, #0c1a45 100%)' }}
+    >
+      {/* ── Keyframe animations ───────────────────────────────────────────── */}
+      <style>{`
+        @keyframes nh-float-a {
+          0%, 100% { transform: translate(0px,  0px) scale(1);    }
+          50%       { transform: translate(-28px, -36px) scale(1.08); }
+        }
+        @keyframes nh-float-b {
+          0%, 100% { transform: translate(0px, 0px) scale(1);   }
+          50%       { transform: translate(22px, 28px) scale(0.94); }
+        }
+        @keyframes nh-float-c {
+          0%   { transform: translate(0px,  0px);  }
+          33%  { transform: translate(14px, -18px); }
+          66%  { transform: translate(-8px,  10px); }
+          100% { transform: translate(0px,  0px);  }
+        }
+        @keyframes nh-float-d {
+          0%, 100% { transform: translate(0px, 0px) scale(1);   }
+          50%       { transform: translate(-18px, 24px) scale(1.05); }
+        }
+        .nh-orb-a { animation: nh-float-a  9s ease-in-out infinite; }
+        .nh-orb-b { animation: nh-float-b 12s ease-in-out infinite; }
+        .nh-orb-c { animation: nh-float-c  7s ease-in-out infinite; }
+        .nh-orb-d { animation: nh-float-d 15s ease-in-out infinite reverse; }
+      `}</style>
+
+      {/* ── Background orbs ───────────────────────────────────────────────── */}
+      <div
+        className="nh-orb-a pointer-events-none absolute -top-36 -left-36 w-[420px] h-[420px] rounded-full"
+        style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.45) 0%, transparent 70%)' }}
+      />
+      <div
+        className="nh-orb-b pointer-events-none absolute -bottom-48 -right-48 w-[540px] h-[540px] rounded-full"
+        style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.38) 0%, transparent 70%)' }}
+      />
+      <div
+        className="nh-orb-c pointer-events-none absolute top-1/2 left-1/4 w-72 h-72 rounded-full"
+        style={{ background: 'radial-gradient(circle, rgba(6,182,212,0.22) 0%, transparent 70%)' }}
+      />
+      <div
+        className="nh-orb-d pointer-events-none absolute -top-16 right-1/4 w-80 h-80 rounded-full"
+        style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.28) 0%, transparent 70%)' }}
+      />
+
+      {/* ── Subtle dot-grid overlay ───────────────────────────────────────── */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: 'radial-gradient(rgba(255,255,255,0.08) 1px, transparent 1px)',
+          backgroundSize: '32px 32px',
+        }}
+      />
+
+      {/* ── Logo + heading ────────────────────────────────────────────────── */}
+      <div className="relative sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center mb-6">
-          <img src={newshubLogo} alt="NewsHub" className="h-16 w-16 object-contain drop-shadow-lg" />
+          <div className="relative">
+            <div
+              className="absolute inset-0 rounded-full blur-xl opacity-60"
+              style={{ background: 'radial-gradient(circle, #60a5fa, #818cf8)' }}
+            />
+            <img src={newshubLogo} alt="NewsHub" className="relative h-16 w-16 object-contain drop-shadow-2xl" />
+          </div>
         </div>
-        <h2 className="text-center text-2xl/9 font-bold tracking-tight text-foreground">Sign in to NewsHub</h2>
-        <p className="mt-2 text-center text-sm/6 text-muted-foreground">The official civic platform for election voting</p>
+        <h2 className="text-center text-2xl font-bold tracking-tight text-white">
+          Sign in to NewsHub
+        </h2>
+        <p className="mt-2 text-center text-sm text-blue-200/70">
+          The official civic platform for election voting
+        </p>
       </div>
 
-      <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
-        <div className="bg-card px-6 py-10 shadow-sm border border-border/50 rounded-2xl sm:px-12">
+      {/* ── Form card ─────────────────────────────────────────────────────── */}
+      <div className="relative mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
+        <div
+          className="px-6 py-10 rounded-2xl shadow-2xl sm:px-12"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+          }}
+        >
           {serverError && (
-            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-start gap-3 text-destructive">
+            <div className="mb-6 p-4 rounded-xl bg-red-500/20 border border-red-400/30 flex items-start gap-3 text-red-300">
               <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="text-sm font-medium">
                 <p>{serverError}</p>
@@ -227,76 +303,94 @@ export default function Login() {
           )}
 
           {infoMessage && (
-            <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-sm font-medium">
+            <div className="mb-6 p-4 rounded-xl bg-blue-500/20 border border-blue-400/30 text-blue-200 text-sm font-medium">
               {infoMessage}
             </div>
           )}
 
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
             <div>
-              <label htmlFor="email" className="block text-sm/6 font-medium text-foreground">Email address</label>
+              <label htmlFor="email" className="block text-sm font-medium text-white/80">
+                Email address
+              </label>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Mail className="h-5 w-5 text-muted-foreground" />
+                  <Mail className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="email"
                   type="email"
                   autoComplete="email"
                   {...register('email')}
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-3 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${
                     errors.email
-                      ? 'ring-destructive focus:ring-destructive text-destructive'
-                      : 'ring-border focus:ring-primary'
+                      ? 'ring-red-400/60 focus:ring-red-400'
+                      : 'ring-white/20 focus:ring-blue-400'
                   }`}
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
                   placeholder="name@example.com"
                 />
               </div>
-              {errors.email && <p className="mt-2 text-sm text-destructive font-medium">{errors.email.message}</p>}
+              {errors.email && <p className="mt-2 text-sm text-red-400 font-medium">{errors.email.message}</p>}
             </div>
 
             <div>
               <div className="flex items-center justify-between">
-                <label htmlFor="password" className="block text-sm/6 font-medium text-foreground">Password</label>
+                <label htmlFor="password" className="block text-sm font-medium text-white/80">
+                  Password
+                </label>
                 <div className="text-sm">
-                  <a href="/" onClick={(event) => event.preventDefault()} className="font-semibold text-primary hover:text-primary/80">Forgot password?</a>
+                  <a
+                    href="/"
+                    onClick={(event) => event.preventDefault()}
+                    className="font-semibold text-blue-300 hover:text-blue-200 transition-colors"
+                  >
+                    Forgot password?
+                  </a>
                 </div>
               </div>
               <div className="mt-2 relative">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                  <Lock className="h-5 w-5 text-muted-foreground" />
+                  <Lock className="h-5 w-5 text-white/40" />
                 </div>
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   {...register('password')}
-                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-foreground shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm/6 bg-background transition-colors ${
+                  className={`block w-full rounded-xl border-0 py-3 pl-10 pr-10 text-white shadow-sm ring-1 ring-inset focus:ring-2 focus:ring-inset sm:text-sm placeholder-white/30 transition-colors ${
                     errors.password
-                      ? 'ring-destructive focus:ring-destructive text-destructive'
-                      : 'ring-border focus:ring-primary'
+                      ? 'ring-red-400/60 focus:ring-red-400'
+                      : 'ring-white/20 focus:ring-blue-400'
                   }`}
+                  style={{ background: 'rgba(255,255,255,0.08)' }}
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-white/40 hover:text-white/70 transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
-              {errors.password && <p className="mt-2 text-sm text-destructive font-medium">{errors.password.message}</p>}
+              {errors.password && <p className="mt-2 text-sm text-red-400 font-medium">{errors.password.message}</p>}
             </div>
 
             <div>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3.5 text-sm/6 font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-3.5 text-sm font-semibold text-white shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                style={{
+                  background: isLoading
+                    ? 'rgba(59,130,246,0.7)'
+                    : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                  boxShadow: '0 4px 24px rgba(99,102,241,0.4)',
+                }}
               >
                 {isLoading ? (
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
                 ) : (
                   <>
                     Sign in
@@ -308,9 +402,9 @@ export default function Login() {
           </form>
         </div>
 
-        <p className="mt-8 text-center text-sm/6 text-muted-foreground">
+        <p className="mt-8 text-center text-sm text-white/50">
           Don't have an account?{' '}
-          <Link to="/register" className="font-semibold text-primary hover:text-primary/80 transition-colors">
+          <Link to="/register" className="font-semibold text-blue-300 hover:text-blue-200 transition-colors">
             Register to vote
           </Link>
         </p>
