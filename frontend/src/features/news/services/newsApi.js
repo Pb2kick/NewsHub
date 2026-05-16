@@ -177,3 +177,28 @@ export async function searchNews({ query = '', location, area, country, signal }
   const payload = await response.json();
   return Array.isArray(payload) ? payload : [];
 }
+
+/**
+ * Fetches a single article directly by its ID, bypassing location scoping.
+ * Used as a fallback when notification-driven navigation points to an article
+ * that is outside the user's current location feed.
+ *
+ * @param {{ id: string | number, signal?: AbortSignal }} options
+ * @returns {Promise<any | null>} The article object, or null if not found / error.
+ */
+export async function fetchArticleById({ id, signal } = {}) {
+  if (!id) return null;
+  try {
+    const response = await fetch(
+      `${NEWS_API_BASE_URL}/api/news/${encodeURIComponent(id)}`,
+      { signal }
+    );
+    if (!response.ok) return null;
+    const payload = await response.json();
+    // Backend may return the article directly or wrapped in { item: ... }
+    return payload?.item ?? payload ?? null;
+  } catch {
+    return null;
+  }
+}
+

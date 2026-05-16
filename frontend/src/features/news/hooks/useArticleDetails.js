@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchArticleContent, fetchNewsByLocation } from '../services/newsApi';
+import { fetchArticleById, fetchArticleContent, fetchNewsByLocation } from '../services/newsApi';
 import { splitArticleIntoParagraphs } from '../../shared/utils/articleText';
 import { getPersistedNewsLocationContext } from '../../shared/utils/newsLocationContext';
 
@@ -61,7 +61,21 @@ export function useArticleDetails({ id, routeArticle }) {
         if (!abortController.signal.aborted) {
           setAllArticles(rows);
           const selected = rows.find((item) => String(item.id) === String(id));
-          setArticle(selected || rows[0] || null);
+
+          if (selected) {
+            // Article found in the location-scoped feed (normal case).
+            setArticle(selected);
+          } else if (id) {
+            // Article not in the current location feed — this happens when the user
+            // navigates from a notification pointing to an article from a different
+            // location. Attempt a direct ID fetch as a fallback.
+            const direct = await fetchArticleById({ id, signal: abortController.signal });
+            if (!abortController.signal.aborted) {
+              setArticle(direct || rows[0] || null);
+            }
+          } else {
+            setArticle(rows[0] || null);
+          }
         }
       } catch {
         if (!abortController.signal.aborted) {

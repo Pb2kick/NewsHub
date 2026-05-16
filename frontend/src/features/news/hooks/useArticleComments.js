@@ -94,14 +94,46 @@ export function useArticleComments(articleId, articleTitle = '') {
         .order('created_at', { ascending: true });
 
       if (!isMounted) return;
+
       if (fetchError) {
         setError(fetchError.message || 'Unable to load comments.');
         setComments([]);
-      } else {
-        setComments(data || []);
+        setIsLoading(false);
+        return;
       }
+
+      const rows = data || [];
+
+      // ── Enrich with current profile photos via SECURITY DEFINER RPC ────────
+      // The stored profile_photo_url on each row may be null (pre-migration rows)
+      // or stale (user changed their photo after posting). The RPC bypasses RLS
+      // so we can read other users' profile_photo_url without exposing the full
+      // public.users table to authenticated clients.
+      if (rows.length > 0) {
+        const uniqueUserIds = [...new Set(rows.map((c) => c.user_id).filter(Boolean))];
+        const { data: photoRows } = await supabase.rpc('get_commenter_photos', {
+          user_ids: uniqueUserIds,
+        });
+
+        if (isMounted && photoRows && photoRows.length > 0) {
+          const photoMap = {};
+          photoRows.forEach((r) => { photoMap[r.id] = r.profile_photo_url; });
+          // Overlay the current photo URL; stored URL takes precedence only if
+          // the RPC returned nothing for that user (e.g. they have no photo set).
+          const enriched = rows.map((c) => ({
+            ...c,
+            profile_photo_url: photoMap[c.user_id] || c.profile_photo_url || null,
+          }));
+          if (isMounted) setComments(enriched);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      if (isMounted) setComments(rows);
       setIsLoading(false);
     };
+
 
     loadComments();
 
