@@ -144,7 +144,10 @@ export async function listVerifications({ status, search } = {}) {
 
   const normalized = (data || []).map((item) => ({
     ...item,
-    status: String(item.status || 'PENDING').toUpperCase(),
+    // FIX: null/empty status is preserved as null (renders UNKNOWN badge)
+    // instead of being masked as 'PENDING' — prevents false PENDING display
+    // for rows that have no status column value.
+    status: item.status ? String(item.status).toUpperCase() : null,
   }));
 
   const term = String(search || '').trim().toLowerCase();
@@ -188,9 +191,33 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
     reviewed_by_admin_id: Number(adminUserId),
   };
 
-  const { error } = await supabase.from('verifications').update(payload).eq('id', verificationId);
+  const { error } = await supabase
+    .from('verifications')
+    .update(payload)
+    .eq('id', verificationId);
+
   if (error) {
     throw new Error(toErrorMessage(error, 'Unable to update verification status.'));
+  }
+
+  // Read-back check: Supabase returns { error: null } even when RLS blocks the
+  // UPDATE (0 rows affected). Confirm the change actually persisted in the DB.
+  const { data: readBack, error: readError } = await supabase
+    .from('verifications')
+    .select('status')
+    .eq('id', verificationId)
+    .maybeSingle();
+
+  if (readError) {
+    throw new Error('Update may have succeeded but could not be confirmed. Refresh the page.');
+  }
+
+  const actual = String(readBack?.status || '').toUpperCase();
+  if (actual !== status.toUpperCase()) {
+    throw new Error(
+      'The update was blocked by a database policy. ' +
+      'Run the RLS SQL block in the Supabase SQL Editor and redeploy.'
+    );
   }
 }
 
