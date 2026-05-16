@@ -2,6 +2,15 @@
  * Changes:
  * - Enforce a 16-digit national ID in the Zod schema to match verification requirements.
  * - Restrict typed input to digits only while keeping paste support and add maxLength/placeholder.
+ * - [NEW] Removed: import { ELECTIONS } from '../data/mockData'
+ * - [NEW] Added:   import { getElectionById } from '../services/electionsApi'
+ * - [NEW] Removed synchronous ELECTIONS.find() from component body (always returned undefined
+ *         for real Supabase IDs because mock IDs are 1/2/3, not UUIDs).
+ * - [NEW] Added election + electionLoading state, resolved via getElectionById(electionId)
+ *         in parallel with the existing getMyVerification() + getUser() Promise.all.
+ * - [NEW] Replaced the synchronous "Election not found" guard with an async-aware
+ *         electionLoading → null-check → full render pattern.
+ * - All other logic, JSX, class names, and sub-components are unchanged.
  */
 /**
  * VoteVerification.jsx — REWRITTEN from mock to real Supabase flow.
@@ -34,10 +43,10 @@ import {
   XCircle,
 } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
-import { ELECTIONS } from '../data/mockData';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
 import { getMyVerification, submitVerification } from '../../admin/services/adminApi';
-import { supabase } from '../../shared/services/supabaseClient'; // NEW
+import { getElectionById } from '../services/electionsApi';
+import { supabase } from '../../shared/services/supabaseClient';
 
 // ── Zod schema — text fields only; file checked separately ───────────────────
 const verificationSchema = z.object({
@@ -126,7 +135,10 @@ function RejectedScreen({ onResubmit }) {
 export default function VoteVerification() {
   const { electionId } = useParams();
   const navigate = useNavigate();
-  const election = ELECTIONS.find((item) => String(item.id) === String(electionId));
+
+  // Election state — resolved asynchronously from Supabase
+  const [election, setElection] = useState(null);
+  const [electionLoading, setElectionLoading] = useState(true);
 
   // Status-check state
   const [statusLoading, setStatusLoading] = useState(true);
@@ -176,15 +188,18 @@ export default function VoteVerification() {
     }
   };
 
-  // ── Check existing verification on mount ─────────────────────────────────
+  // ── Check existing verification + load election on mount ──────────────────
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      const [record, authResponse] = await Promise.all([
+      const [record, authResponse, electionData] = await Promise.all([
         getMyVerification(),
         supabase.auth.getUser(),
+        getElectionById(electionId),
       ]);
       if (cancelled) return;
+      setElection(electionData);
+      setElectionLoading(false);
       const userId = authResponse.data?.user?.id || null;
       setCurrentUserId(userId);
       const status = record?.status ? String(record.status).toUpperCase() : null;
@@ -198,7 +213,7 @@ export default function VoteVerification() {
     };
     run();
     return () => { cancelled = true; };
-  }, [navigate]);
+  }, [navigate, electionId]);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -254,7 +269,15 @@ export default function VoteVerification() {
     }
   };
 
-  // ── Election guard ────────────────────────────────────────────────────────
+  // ── Election guard (async-aware) ──────────────────────────────────────────
+  if (electionLoading) {
+    return (
+      <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
+        <LoadingScreen />
+      </AuthenticatedPageShell>
+    );
+  }
+
   if (!election) {
     return (
       <AuthenticatedPageShell activeCategory={NEWS_CATEGORY_ELECTIONS}>
