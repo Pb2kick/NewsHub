@@ -62,7 +62,7 @@ export default function AdminVerifications() {
       />
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && (data || []).length === 0} emptyText="No verification requests found." />
+        <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && (data || []).length === 0} emptyText="No verification requests found. If submissions have been made, check that the admin_select_all RLS policy exists on the verifications table in your Supabase project under Authentication → Policies." />
         {!loading && !error && (data || []).length > 0 ? (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500">

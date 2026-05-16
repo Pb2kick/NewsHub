@@ -142,6 +142,33 @@ export async function listVerifications({ status, search } = {}) {
     throw new Error(toErrorMessage(error, 'Unable to load verifications.'));
   }
 
+  // ── RLS diagnostic ────────────────────────────────────────────────────────
+  // Supabase returns { data: [], error: null } when RLS blocks a SELECT —
+  // indistinguishable from a genuinely empty table at the data layer.
+  // When the primary query returns empty, run a second count-only query
+  // (no status filter, head: true so no rows are transferred).
+  // If THAT query errors, the table itself is inaccessible — almost certainly
+  // an RLS or permission problem — so surface a clear, actionable message.
+  // If the count query also returns no error, the table is either genuinely
+  // empty or RLS is silently hiding rows; we return [] and let the improved
+  // emptyText in AdminVerifications guide the admin to check policies.
+  if ((data || []).length === 0) {
+    const { error: countError } = await supabase
+      .from('verifications')
+      .select('id', { count: 'exact', head: true });
+
+    if (countError) {
+      throw new Error(
+        'Unable to access the verifications table — this is likely an RLS policy issue. ' +
+        'Run the SQL block in the Supabase SQL Editor to create the admin_select_all policy, ' +
+        'then reload this page. DB error: ' + (countError.message || 'unknown')
+      );
+    }
+    // count query succeeded: table is accessible but empty (or RLS hides rows silently).
+    // Return [] — the improved emptyText in AdminVerifications explains what to check.
+  }
+  // ── End RLS diagnostic ────────────────────────────────────────────────────
+
   const normalized = (data || []).map((item) => ({
     ...item,
     // FIX: null/empty status is preserved as null (renders UNKNOWN badge)
