@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ExternalLink, FileText, LayoutDashboard, Menu, ShieldCheck, User, Users, Vote, X } from 'lucide-react';
+import { BarChart2, ExternalLink, LayoutDashboard, Menu, Newspaper, ShieldCheck, User, Users, Vote, X } from 'lucide-react';
 import { supabase } from '../../shared/services/supabaseClient';
 import { clearAdminViewMode } from '../../auth/hooks/useAdminViewMode';
+import { getCurrentAdminProfile } from '../services/adminApi';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
   { label: 'Verifications', path: '/admin/verifications', icon: ShieldCheck },
   { label: 'Elections', path: '/admin/elections', icon: Vote },
   { label: 'Candidates', path: '/admin/candidates', icon: Users },
-  { label: 'News', path: '/admin/news', icon: FileText },
+  { label: 'Vote Statistics', path: '/admin/vote-statistics', icon: BarChart2 },
+  { label: 'News Moderation', path: '/admin/news', icon: Newspaper },
 ];
 
 /**
@@ -31,8 +33,45 @@ function isActive(path, currentPath) {
  */
 export default function AdminLayout() {
   const [isOpen, setIsOpen] = useState(false);
+  const [adminName, setAdminName] = useState('Admin');
+  const [adminInitials, setAdminInitials] = useState('A');
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+
+    const resolveAdminProfile = async () => {
+      const [{ data: { user } }, adminProfile] = await Promise.all([
+        supabase.auth.getUser(),
+        getCurrentAdminProfile(),
+      ]);
+
+      if (!active) return;
+
+      const firstName = String(user?.user_metadata?.first_name || '').trim();
+      const lastName = String(user?.user_metadata?.last_name || '').trim();
+      const fullName = `${firstName} ${lastName}`.trim();
+      const fallbackEmail = user?.email || adminProfile?.email || '';
+      const fallbackName = fallbackEmail ? fallbackEmail.split('@')[0] : 'Admin';
+      const displayName = fullName || fallbackName || 'Admin';
+
+      const initials = displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() || '')
+        .join('') || 'A';
+
+      setAdminName(displayName);
+      setAdminInitials(initials);
+    };
+
+    resolveAdminProfile();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   /** Signs out the current user and redirects to login. */
   const handleSignOut = async () => {
@@ -45,7 +84,10 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-slate-50 flex">
       <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform`}>
         <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between">
-          <Link to="/admin" className="font-bold">NewsHub Admin</Link>
+          <Link to="/admin" className="flex items-center gap-2 font-bold">
+            <span className="w-8 h-8 rounded-lg bg-blue-600 grid place-items-center text-white font-bold">N</span>
+            NewsHub Admin
+          </Link>
           <button type="button" className="lg:hidden" onClick={() => setIsOpen(false)}><X className="w-5 h-5" /></button>
         </div>
         <nav className="p-3 space-y-1">
@@ -77,7 +119,10 @@ export default function AdminLayout() {
               <User className="w-4 h-4" />
               Profile
             </Link>
-            <p className="text-sm font-semibold text-slate-700">Administrator</p>
+            <p className="text-sm font-semibold text-slate-700">{adminName}</p>
+            <div className="w-9 h-9 rounded-full bg-blue-600 text-white text-sm font-bold grid place-items-center">
+              {adminInitials}
+            </div>
           </div>
         </header>
         <main className="p-4 sm:p-6 lg:p-8"><Outlet /></main>

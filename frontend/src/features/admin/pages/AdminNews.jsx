@@ -38,7 +38,6 @@ export default function AdminNews() {
     <div>
       <AdminPageHeader
         title="News Moderation"
-        subtitle="Monitor and remove problematic stories."
         actions={<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search news" className="border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm" />}
       />
       {message ? <p className="text-sm text-green-700 mb-3">{message}</p> : null}

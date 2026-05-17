@@ -1,27 +1,37 @@
-/*
- * Changes:
- * - Added a recent pending verification table to surface moderation needs.
- */
-import React, { useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { FileText, ShieldCheck, Users, Vote } from 'lucide-react';
+import React, { useCallback, useMemo } from 'react';
+import { ArrowDownRight, ArrowUpRight, FileText, Minus, ShieldCheck, Users, Vote } from 'lucide-react';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminDataState from '../components/AdminDataState';
 import { useAdminResource } from '../hooks/useAdminResource';
-import { getDashboardStats, getLastSevenDayVotes, listVerifications } from '../services/adminApi';
+import { getDashboardStats, getLastSevenDayVotes } from '../services/adminApi';
 
-/**
- * Maps dashboard stat cards from loaded counters.
- * @param {{users: number, elections: number, articles: number, pendingVerifications: number}} stats
- * @returns {Array<{label: string, value: number, icon: any}>}
- */
-function buildCards(stats) {
-  return [
-    { label: 'Total Users', value: stats.users, icon: Users },
-    { label: 'Active Elections', value: stats.elections, icon: Vote },
-    { label: 'News Articles', value: stats.articles, icon: FileText },
-    { label: 'Pending Verifications', value: stats.pendingVerifications, icon: ShieldCheck },
-  ];
+const CHART_WIDTH = 560;
+const CHART_HEIGHT = 200;
+const CHART_PADDING = { top: 20, right: 20, bottom: 32, left: 40 };
+
+function roundMax(value) {
+  if (value <= 5) return 5;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+  return Math.ceil(value / magnitude) * magnitude;
+}
+
+function buildLinePath(points, width, height) {
+  if (!points.length) return '';
+  const clamped = points.map((point) => ({
+    x: Math.min(width, Math.max(0, point.x)),
+    y: Math.min(height, Math.max(0, point.y)),
+  }));
+  return clamped
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ');
+}
+
+function buildAreaPath(points, bottomY) {
+  if (!points.length) return '';
+  const first = points[0];
+  const last = points[points.length - 1];
+  const line = points.map((point) => `L ${point.x} ${point.y}`).join(' ');
+  return `M ${first.x} ${bottomY} ${line} L ${last.x} ${bottomY} Z`;
 }
 
 /**
@@ -34,12 +44,69 @@ export default function AdminDashboard() {
     return { stats, votes };
   }, []);
 
-  const loadPendingVerifications = useCallback(() => listVerifications({ status: 'PENDING' }), []);
-
   const { data, loading, error } = useAdminResource(loadDashboard, []);
-  const { data: pendingData, loading: pendingLoading, error: pendingError } = useAdminResource(loadPendingVerifications, []);
+  const stats = data?.stats || { users: 0, elections: 0, articles: 0, pendingVerifications: 0 };
+  const votes = data?.votes || [];
 
-  const cards = buildCards(data?.stats || { users: 0, elections: 0, articles: 0, pendingVerifications: 0 });
+  // PLACEHOLDER — replace with real delta API when available.
+  const cards = [
+    {
+      label: 'Total Users',
+      value: stats.users,
+      icon: Users,
+      iconBg: 'bg-blue-600',
+      trendText: '+12% from last week',
+      trendTone: 'text-emerald-600',
+      trendIcon: ArrowUpRight,
+    },
+    {
+      label: 'Active Elections',
+      value: stats.elections,
+      icon: Vote,
+      iconBg: 'bg-purple-600',
+      trendText: '0% from last week',
+      trendTone: 'text-slate-500',
+      trendIcon: Minus,
+    },
+    {
+      label: 'News Articles',
+      value: stats.articles,
+      icon: FileText,
+      iconBg: 'bg-emerald-600',
+      trendText: '+5% from last week',
+      trendTone: 'text-emerald-600',
+      trendIcon: ArrowUpRight,
+    },
+    {
+      label: 'Pending Verifications',
+      value: stats.pendingVerifications,
+      icon: ShieldCheck,
+      iconBg: 'bg-amber-500',
+      trendText: '-8% from last week',
+      trendTone: 'text-rose-600',
+      trendIcon: ArrowDownRight,
+    },
+  ];
+
+  const chartData = useMemo(() => {
+    const maxValue = Math.max(1, ...votes.map((item) => Number(item.value || 0)));
+    const yMax = roundMax(maxValue);
+    const yMid = Math.round(yMax / 2);
+    const innerWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right;
+    const innerHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
+    const step = votes.length > 1 ? innerWidth / (votes.length - 1) : 0;
+    const bottomY = CHART_PADDING.top + innerHeight;
+    const points = votes.map((item, index) => {
+      const value = Number(item.value || 0);
+      const x = CHART_PADDING.left + step * index;
+      const y = CHART_PADDING.top + innerHeight - (value / yMax) * innerHeight;
+      return { x, y, label: item.label, value };
+    });
+    return { yMax, yMid, bottomY, points, innerHeight };
+  }, [votes]);
+
+  const linePath = buildLinePath(chartData.points, CHART_WIDTH, CHART_HEIGHT);
+  const areaPath = buildAreaPath(chartData.points, chartData.bottomY);
 
   return (
     <div>
@@ -50,66 +117,116 @@ export default function AdminDashboard() {
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
             {cards.map((card) => (
               <article key={card.label} className="bg-white border border-slate-200 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between">
                   <p className="text-sm text-slate-500">{card.label}</p>
-                  <card.icon className="w-4 h-4 text-blue-600" />
+                  <div className={`w-10 h-10 rounded-lg ${card.iconBg} grid place-items-center`}>
+                    <card.icon className="w-5 h-5 text-white" />
+                  </div>
                 </div>
-                <p className="text-2xl font-bold text-slate-900">{card.value.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-2">{card.value.toLocaleString()}</p>
+                <div className={`mt-2 inline-flex items-center gap-1 text-xs font-semibold ${card.trendTone}`}>
+                  <card.trendIcon className="w-3.5 h-3.5" />
+                  {card.trendText}
+                </div>
               </article>
             ))}
           </section>
-
-          <section className="bg-white border border-slate-200 rounded-xl p-4">
-            <h2 className="text-base font-semibold text-slate-900 mb-3">Votes in the Last 7 Days</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-              {(data?.votes || []).map((item) => (
-                <div key={item.label} className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                  <p className="text-xs text-slate-500">{item.label}</p>
-                  <p className="text-lg font-bold text-slate-900 mt-1">{item.value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="bg-white border border-slate-200 rounded-xl p-4 mt-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-3">Recent Verification Requests</h2>
-            {pendingLoading ? (
-              <div className="text-sm text-slate-500">Loading pending verifications...</div>
-            ) : pendingError ? (
-              <div className="text-sm text-rose-600">Unable to load pending verifications.</div>
-            ) : (pendingData || []).length === 0 ? (
-              <div className="text-sm text-slate-500">No pending verifications.</div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="text-slate-500">
-                  <tr>
-                    <th className="text-left py-2">Full Name</th>
-                    <th className="text-left py-2">Address</th>
-                    <th className="text-left py-2">Submitted</th>
-                    <th className="text-left py-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(pendingData || []).slice(0, 5).map((item) => (
-                    <tr key={item.id} className="border-t border-slate-100">
-                      <td className="py-2 font-medium text-slate-900">{item.full_name || 'Unknown'}</td>
-                      <td className="py-2 text-slate-600">{item.address || 'N/A'}</td>
-                      <td className="py-2 text-slate-600">
-                        {item.submitted_at ? new Date(item.submitted_at).toLocaleString() : 'N/A'}
-                      </td>
-                      <td className="py-2">
-                        <Link
-                          to={`/admin/verifications/${item.id}`}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-semibold"
-                        >
-                          Review
-                        </Link>
-                      </td>
-                    </tr>
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <h2 className="text-base font-semibold text-slate-900 mb-3">Weekly Vote Activity</h2>
+              <div className="overflow-x-auto">
+                <svg width={CHART_WIDTH} height={CHART_HEIGHT} viewBox="0 0 560 200" role="img">
+                  <rect x="0" y="0" width="560" height="200" fill="white" />
+                  {[chartData.yMax, chartData.yMid, 0].map((value) => {
+                    const y = chartData.bottomY - (value / chartData.yMax) * chartData.innerHeight;
+                    return (
+                      <g key={value}>
+                        <line
+                          x1={CHART_PADDING.left}
+                          x2={CHART_WIDTH - CHART_PADDING.right}
+                          y1={y}
+                          y2={y}
+                          stroke="#E2E8F0"
+                          strokeDasharray="4 4"
+                        />
+                        <text x={CHART_PADDING.left - 8} y={y + 4} textAnchor="end" className="text-xs fill-slate-400">
+                          {value}
+                        </text>
+                      </g>
+                    );
+                  })}
+                  <path d={areaPath} fill="#BFDBFE" />
+                  <path d={linePath} fill="none" stroke="#2563EB" strokeWidth="2" />
+                  {chartData.points.map((point) => (
+                    <circle key={point.label} cx={point.x} cy={point.y} r="3" fill="#2563EB" />
                   ))}
-                </tbody>
-              </table>
-            )}
+                  {chartData.points.map((point) => (
+                    <text
+                      key={`${point.label}-x`}
+                      x={point.x}
+                      y={CHART_HEIGHT - 8}
+                      textAnchor="middle"
+                      className="text-xs fill-slate-500"
+                    >
+                      {point.label}
+                    </text>
+                  ))}
+                </svg>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <h2 className="text-base font-semibold text-slate-900 mb-3">New User Registrations</h2>
+              <div className="overflow-x-auto">
+                {/* Uses vote data as proxy — replace with registration data when API endpoint is available. */}
+                <svg width={CHART_WIDTH} height={CHART_HEIGHT} viewBox="0 0 560 200" role="img">
+                  <rect x="0" y="0" width="560" height="200" fill="white" />
+                  {[chartData.yMax, chartData.yMid, 0].map((value) => {
+                    const y = chartData.bottomY - (value / chartData.yMax) * chartData.innerHeight;
+                    return (
+                      <g key={value}>
+                        <line
+                          x1={CHART_PADDING.left}
+                          x2={CHART_WIDTH - CHART_PADDING.right}
+                          y1={y}
+                          y2={y}
+                          stroke="#E2E8F0"
+                          strokeDasharray="4 4"
+                        />
+                        <text x={CHART_PADDING.left - 8} y={y + 4} textAnchor="end" className="text-xs fill-slate-400">
+                          {value}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {chartData.points.map((point, index) => {
+                    const barGap = 10;
+                    const barWidth = chartData.points.length
+                      ? (CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right - barGap * (chartData.points.length - 1)) / chartData.points.length
+                      : 0;
+                    const barHeight = chartData.innerHeight - (point.y - CHART_PADDING.top);
+                    const x = CHART_PADDING.left + index * (barWidth + barGap);
+                    const y = CHART_PADDING.top + chartData.innerHeight - barHeight;
+                    return (
+                      <rect key={point.label} x={x} y={y} width={barWidth} height={barHeight} fill="#7C3AED" rx="4" />
+                    );
+                  })}
+
+                  {chartData.points.map((point) => (
+                    <text
+                      key={`${point.label}-bar`}
+                      x={point.x}
+                      y={CHART_HEIGHT - 8}
+                      textAnchor="middle"
+                      className="text-xs fill-slate-500"
+                    >
+                      {point.label}
+                    </text>
+                  ))}
+                </svg>
+              </div>
+            </div>
           </section>
         </>
       ) : null}

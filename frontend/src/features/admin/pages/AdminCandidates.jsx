@@ -7,7 +7,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import ConfirmationModal from '../components/ConfirmationModal';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import ImageUploader from '../components/ImageUploader';
@@ -43,6 +44,18 @@ const defaultValues = {
   display_order: 0,
 };
 
+function getInitials(name) {
+  if (!name) return 'NU';
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word[0]?.toUpperCase() || '')
+      .join('') || 'NU'
+  );
+}
+
 /**
  * Renders candidates management table.
  * @returns {JSX.Element}
@@ -57,6 +70,8 @@ export default function AdminCandidates() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [elections, setElections] = useState([]);
   const [electionsError, setElectionsError] = useState('');
   const form = useForm({
@@ -156,14 +171,25 @@ export default function AdminCandidates() {
   };
 
   /** Handles candidate delete action with confirmation. */
-  const handleDelete = async (candidateId) => {
-    const confirmed = window.confirm('Delete this candidate?');
-    if (!confirmed) {
-      return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    setIsConfirming(true);
+    setFormError('');
+    try {
+      await deleteCandidate(pendingDelete.id);
+      setMessage('Candidate removed.');
+      await reload();
+    } catch (deleteError) {
+      setFormError(deleteError?.message || 'Unable to delete candidate.');
+    } finally {
+      setIsConfirming(false);
+      setPendingDelete(null);
     }
-    await deleteCandidate(candidateId);
-    setMessage('Candidate removed.');
-    await reload();
+  };
+
+  const handleCancelDelete = () => {
+    if (isConfirming) return;
+    setPendingDelete(null);
   };
 
   return (
@@ -173,7 +199,6 @@ export default function AdminCandidates() {
         subtitle="Review and moderate candidate entries."
         actions={(
           <div className="flex flex-wrap items-center gap-2">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search candidates" className="border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm" />
             <button type="button" onClick={handleOpenCreate} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">
               <Plus className="w-4 h-4" />
               Add Candidate
@@ -183,6 +208,15 @@ export default function AdminCandidates() {
       />
       {message ? <p className="text-sm text-green-700 mb-3">{message}</p> : null}
       {electionsError ? <p className="text-sm text-rose-600 mb-3">{electionsError}</p> : null}
+      <div className="relative mb-4">
+        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search candidates"
+          className="w-full border border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 text-sm"
+        />
+      </div>
       {isFormOpen && (
         <form onSubmit={form.handleSubmit(onSubmit)} className="mb-4 rounded-xl border border-slate-200 bg-white p-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -281,25 +315,54 @@ export default function AdminCandidates() {
         {!loading && !error && filtered.length > 0 ? (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500">
-              <tr><th className="px-4 py-3 text-left">Name</th><th className="px-4 py-3 text-left">Party</th><th className="px-4 py-3 text-left">Position</th><th className="px-4 py-3 text-left">Election ID</th><th className="px-4 py-3 text-right">Action</th></tr>
+              <tr>
+                <th className="px-4 py-3 text-left">Name</th>
+                <th className="px-4 py-3 text-left">Party</th>
+                <th className="px-4 py-3 text-left">Election</th>
+                <th className="px-4 py-3 text-left">Position</th>
+                <th className="px-4 py-3 text-left">Votes</th>
+                <th className="px-4 py-3 text-right">Actions</th>
+              </tr>
             </thead>
             <tbody>
               {filtered.map((item) => (
                 <tr key={item.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">{item.name}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold grid place-items-center overflow-hidden">
+                        {item.photo_url
+                          ? <img src={item.photo_url} alt={item.name || 'Candidate'} className="w-full h-full object-cover" />
+                          : getInitials(item.name)}
+                      </div>
+                      <span className="font-semibold text-slate-900">{item.name}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{item.party || 'N/A'}</td>
+                  <td className="px-4 py-3 text-slate-600">{item.election_id ? `e${item.election_id}` : 'N/A'}</td>
                   <td className="px-4 py-3 text-slate-600">{item.position || 'N/A'}</td>
-                  <td className="px-4 py-3 text-slate-600">{item.election_id}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {/* Votes column placeholder — add a vote_count view or column when available. */}
+                    —
+                  </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(item)}
-                      className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-800 mr-3"
-                    >
-                      <Pencil className="w-4 h-4" />
-                      Edit
-                    </button>
-                    <button type="button" onClick={() => handleDelete(item.id)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4" />Delete</button>
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(item)}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                        aria-label="Edit candidate"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(item)}
+                        className="inline-flex items-center justify-center rounded-md border border-rose-200 p-2 text-rose-600 hover:bg-rose-50"
+                        aria-label="Delete candidate"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -307,6 +370,19 @@ export default function AdminCandidates() {
           </table>
         ) : null}
       </div>
+
+      {pendingDelete ? (
+        <ConfirmationModal
+          isOpen={pendingDelete !== null}
+          title="Delete Candidate"
+          message={`Are you sure you want to permanently delete ${pendingDelete.name || 'this candidate'}? This cannot be undone.`}
+          confirmLabel="Yes, Delete"
+          confirmClassName="bg-red-600 hover:bg-red-700 disabled:hover:bg-red-600"
+          onConfirm={handleDelete}
+          onCancel={handleCancelDelete}
+          isConfirming={isConfirming}
+        />
+      ) : null}
     </div>
   );
 }
