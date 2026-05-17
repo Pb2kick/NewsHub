@@ -1,10 +1,11 @@
 // frontend/src/features/news/components/ArticleContentBlock.jsx
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Loader2, MessageSquare, Reply, Trash2 } from 'lucide-react';
 import { useArticleComments } from '../hooks/useArticleComments';
 
 const MAX_COMMENT_LENGTH = 2000;
+const MAX_VISUAL_DEPTH = 4;
 
 function formatRelativeTime(isoTimestamp) {
   if (!isoTimestamp) return '';
@@ -59,6 +60,199 @@ function CommentAvatar({ photoUrl, displayName, size = 'md' }) {
   );
 }
 
+function buildTree(comments) {
+  const nodesById = new Map();
+  comments.forEach((comment) => {
+    nodesById.set(comment.id, { ...comment, children: [] });
+  });
+
+  const roots = [];
+  comments.forEach((comment) => {
+    const node = nodesById.get(comment.id);
+    const parentId = comment.parent_id;
+    if (parentId && nodesById.has(parentId)) {
+      nodesById.get(parentId).children.push(node);
+    } else {
+      // Orphan rows become roots so they are still visible.
+      roots.push(node);
+    }
+  });
+
+  const sortChildren = (node) => {
+    node.children.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    node.children.forEach(sortChildren);
+  };
+
+  roots.forEach(sortChildren);
+  return roots;
+}
+
+function CommentCard({
+  node,
+  depth,
+  currentUser,
+  replyingToId,
+  replyDraft,
+  isReplySubmitting,
+  expandedIds,
+  onToggleExpand,
+  onOpenReply,
+  onCancelReply,
+  onReplyDraftChange,
+  onReplySubmit,
+  onDelete,
+}) {
+  const isExpanded = expandedIds.has(node.id);
+  const isReplyOpen = replyingToId === node.id;
+  const childCount = node.children.length;
+  const displayName = node.display_name || 'NewsHub User';
+  const displayContent = node.content && node.content.trim().length > 0
+    ? node.content
+    : 'Comment deleted';
+  const isNested = depth > 0;
+
+  const indentClass = depth === 0
+    ? 'ml-0'
+    : depth <= MAX_VISUAL_DEPTH
+      ? 'ml-4'
+      : 'ml-0';
+  const threadClass = depth > 0 && depth <= MAX_VISUAL_DEPTH
+    ? 'border-l-2 border-slate-100 pl-3'
+    : '';
+  const cardClass = isNested
+    ? 'rounded-xl border border-slate-100 bg-slate-50 p-3'
+    : 'rounded-xl border border-slate-200 bg-white p-4';
+  const gapClass = isNested ? 'gap-2.5' : 'gap-3';
+  const nameClass = isNested ? 'text-xs' : 'text-sm';
+  const bodyClass = isNested ? 'text-xs' : 'text-sm';
+  const toggleOffsetClass = isNested ? 'ml-10' : 'ml-11';
+  const replyBoxOffsetClass = isNested
+    ? 'mt-1.5 border-l-2 border-blue-200 pl-3'
+    : 'mt-1.5 ml-11 border-l-2 border-blue-200 pl-3';
+  const contentSpacingClass = isNested ? 'mt-1' : 'mt-2';
+
+  return (
+    <div className={`${indentClass} ${threadClass}`}>
+      <div className={cardClass}>
+        <div className={`flex items-start ${gapClass}`}>
+          <CommentAvatar
+            photoUrl={node.profile_photo_url}
+            displayName={displayName}
+            size={isNested ? 'sm' : 'md'}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className={`${nameClass} font-semibold text-slate-800`}>
+                  {displayName}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {formatRelativeTime(node.created_at)}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {currentUser && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenReply(node.id)}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors"
+                  >
+                    <Reply className="h-3 w-3" />
+                    Reply
+                  </button>
+                )}
+                {node.user_id === currentUser?.id && (
+                  <button
+                    type="button"
+                    onClick={() => onDelete(node.id)}
+                    className="text-slate-400 hover:text-rose-500 transition-colors"
+                    aria-label="Delete comment"
+                  >
+                    <Trash2 className={isNested ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <p className={`${contentSpacingClass} ${bodyClass} text-slate-700 whitespace-pre-wrap`}>
+              {displayContent}
+            </p>
+          </div>
+        </div>
+
+        {childCount > 0 && (
+          <button
+            type="button"
+            onClick={() => onToggleExpand(node.id)}
+            className={`mt-3 ${toggleOffsetClass} text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors`}
+          >
+            {isExpanded
+              ? 'Hide replies'
+              : `${childCount} ${childCount === 1 ? 'reply' : 'replies'}`}
+          </button>
+        )}
+      </div>
+
+      {isReplyOpen && currentUser && (
+        <div className={replyBoxOffsetClass}>
+          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+            <textarea
+              value={replyDraft}
+              onChange={(e) => onReplyDraftChange(e.target.value)}
+              maxLength={MAX_COMMENT_LENGTH}
+              rows={2}
+              placeholder={`Reply to ${displayName}…`}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onCancelReply}
+                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => onReplySubmit(node.id, displayName)}
+                disabled={isReplySubmitting || replyDraft.trim().length === 0}
+                className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:hover:bg-blue-600"
+              >
+                {isReplySubmitting ? 'Posting…' : 'Reply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isExpanded && childCount > 0 && (
+        <div className="mt-1.5 space-y-2">
+          {node.children.map((child) => (
+            <CommentCard
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              currentUser={currentUser}
+              replyingToId={replyingToId}
+              replyDraft={replyDraft}
+              isReplySubmitting={isReplySubmitting}
+              expandedIds={expandedIds}
+              onToggleExpand={onToggleExpand}
+              onOpenReply={onOpenReply}
+              onCancelReply={onCancelReply}
+              onReplyDraftChange={onReplyDraftChange}
+              onReplySubmit={onReplySubmit}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Renders article body text, source link, and threaded comments.
  *
@@ -98,27 +292,20 @@ export default function ArticleContentBlock({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // ── Reply thread state ───────────────────────────────────────────────────
-  const [replyingToId,     setReplyingToId]     = useState(null); // comment id
-  const [replyDraft,       setReplyDraft]       = useState('');
+  const [replyingToId,      setReplyingToId]      = useState(null); // comment id
+  const [replyDraft,        setReplyDraft]        = useState('');
   const [isReplySubmitting, setIsReplySubmitting] = useState(false);
-  const [expandedReplies,  setExpandedReplies]  = useState(new Set());
+  const [expandedIds,       setExpandedIds]       = useState(new Set());
 
   // ── Derive threaded structure ────────────────────────────────────────────
-  const topLevelComments = comments.filter((c) => !c.parent_id);
-  const repliesMap       = {};
-  comments.forEach((c) => {
-    if (c.parent_id) {
-      if (!repliesMap[c.parent_id]) repliesMap[c.parent_id] = [];
-      repliesMap[c.parent_id].push(c);
-    }
-  });
+  const commentTree = useMemo(() => buildTree(comments), [comments]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const remainingChars = Math.max(0, MAX_COMMENT_LENGTH - draft.length);
   const isPostDisabled  = isLoading || isSubmitting || draft.trim().length === 0;
 
   const toggleExpanded = (commentId) => {
-    setExpandedReplies((prev) => {
+    setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(commentId)) next.delete(commentId);
       else next.add(commentId);
@@ -126,10 +313,14 @@ export default function ArticleContentBlock({
     });
   };
 
-  const openReply = (commentId) => {
+  const handleCancelReply = () => {
+    setReplyingToId(null);
+    setReplyDraft('');
+  };
+
+  const handleOpenReply = (commentId) => {
     if (replyingToId === commentId) {
-      setReplyingToId(null);
-      setReplyDraft('');
+      handleCancelReply();
     } else {
       setReplyingToId(commentId);
       setReplyDraft('');
@@ -155,11 +346,12 @@ export default function ArticleContentBlock({
     if (!trimmed || isReplySubmitting) return;
     setIsReplySubmitting(true);
     try {
+      // Reply notifications already target the direct parent comment author (depth-agnostic).
       await submitComment(trimmed, parentId);
       setReplyDraft('');
       setReplyingToId(null);
       // Auto-expand the thread so the new reply is visible.
-      setExpandedReplies((prev) => new Set([...prev, parentId]));
+      setExpandedIds((prev) => new Set([...prev, parentId]));
     } catch {
       // error surfaced via hook state
     } finally {
@@ -220,162 +412,33 @@ export default function ArticleContentBlock({
         )}
 
         {/* Empty state */}
-        {!isLoading && topLevelComments.length === 0 && (
+        {!isLoading && commentTree.length === 0 && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
             Be the first to comment.
           </div>
         )}
 
         {/* ── Threaded comment list ─────────────────────────────────────── */}
-        {!isLoading && topLevelComments.length > 0 && (
+        {!isLoading && commentTree.length > 0 && (
           <div className="space-y-3">
-            {topLevelComments.map((comment) => {
-              const replies    = repliesMap[comment.id] || [];
-              const isExpanded = expandedReplies.has(comment.id);
-              const isReplyOpen = replyingToId === comment.id;
-
-              return (
-                <div key={comment.id}>
-                  {/* Top-level comment card */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-start gap-3">
-                      <CommentAvatar
-                        photoUrl={comment.profile_photo_url}
-                        displayName={comment.display_name}
-                      />
-                      <div className="flex-1 min-w-0">
-                        {/* Meta row */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">
-                              {comment.display_name || 'NewsHub User'}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {formatRelativeTime(comment.created_at)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            {currentUser && (
-                              <button
-                                type="button"
-                                onClick={() => openReply(comment.id)}
-                                className="flex items-center gap-1 text-xs text-slate-400 hover:text-blue-600 transition-colors"
-                              >
-                                <Reply className="h-3 w-3" />
-                                Reply
-                              </button>
-                            )}
-                            {comment.user_id === currentUser?.id && (
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(comment.id)}
-                                className="text-slate-400 hover:text-rose-500 transition-colors"
-                                aria-label="Delete comment"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Content */}
-                        <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
-                          {comment.content}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Reply count toggle */}
-                    {replies.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => toggleExpanded(comment.id)}
-                        className="mt-3 ml-11 text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
-                      >
-                        {isExpanded
-                          ? 'Hide replies'
-                          : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* ── Expanded reply thread ─────────────────────────── */}
-                  {isExpanded && replies.length > 0 && (
-                    <div className="ml-10 mt-1.5 border-l-2 border-slate-100 pl-3 space-y-2">
-                      {replies.map((reply) => (
-                        <div key={reply.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                          <div className="flex items-start gap-2.5">
-                            <CommentAvatar
-                              photoUrl={reply.profile_photo_url}
-                              displayName={reply.display_name}
-                              size="sm"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <p className="text-xs font-semibold text-slate-800">
-                                    {reply.display_name || 'NewsHub User'}
-                                  </p>
-                                  <p className="text-xs text-slate-400">
-                                    {formatRelativeTime(reply.created_at)}
-                                  </p>
-                                </div>
-                                {reply.user_id === currentUser?.id && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDelete(reply.id)}
-                                    className="text-slate-400 hover:text-rose-500 transition-colors"
-                                    aria-label="Delete reply"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                              <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">
-                                {reply.content}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* ── Inline reply compose ──────────────────────────── */}
-                  {isReplyOpen && currentUser && (
-                    <div className="ml-10 mt-1.5 pl-3 border-l-2 border-blue-200">
-                      <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
-                        <textarea
-                          value={replyDraft}
-                          onChange={(e) => setReplyDraft(e.target.value)}
-                          maxLength={MAX_COMMENT_LENGTH}
-                          rows={2}
-                          placeholder={`Reply to ${comment.display_name || 'this comment'}…`}
-                          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
-                        />
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => { setReplyingToId(null); setReplyDraft(''); }}
-                            className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleReplySubmit(comment.id, comment.display_name)}
-                            disabled={isReplySubmitting || replyDraft.trim().length === 0}
-                            className="px-4 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:hover:bg-blue-600"
-                          >
-                            {isReplySubmitting ? 'Posting…' : 'Reply'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {commentTree.map((comment) => (
+              <CommentCard
+                key={comment.id}
+                node={comment}
+                depth={0}
+                currentUser={currentUser}
+                replyingToId={replyingToId}
+                replyDraft={replyDraft}
+                isReplySubmitting={isReplySubmitting}
+                expandedIds={expandedIds}
+                onToggleExpand={toggleExpanded}
+                onOpenReply={handleOpenReply}
+                onCancelReply={handleCancelReply}
+                onReplyDraftChange={setReplyDraft}
+                onReplySubmit={handleReplySubmit}
+                onDelete={handleDelete}
+              />
+            ))}
           </div>
         )}
 
