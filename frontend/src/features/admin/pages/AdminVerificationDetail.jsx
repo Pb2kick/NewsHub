@@ -1,3 +1,4 @@
+// frontend/src/features/admin/pages/AdminVerificationDetail.jsx
 /*
  * Changes:
  * - Added localStatus to optimistically update the status badge immediately.
@@ -5,6 +6,8 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import ConfirmationModal from '../components/ConfirmationModal';
+// AdminDataState, AdminPageHeader, AdminStatusBadge, and adminApi helpers are intentionally unchanged.
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
@@ -33,6 +36,8 @@ export default function AdminVerificationDetail() {
   const [decisionOutcome, setDecisionOutcome] = useState(null);
   const [localStatus, setLocalStatus] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState(null);
+  const [isConfirming, setIsConfirming] = useState(false);
   const loadDetail = useCallback(() => getVerificationById(verificationId), [verificationId]);
   const { data, loading, error, reload } = useAdminResource(loadDetail, [verificationId]);
 
@@ -60,6 +65,39 @@ export default function AdminVerificationDetail() {
       setIsSaving(false);
     }
   };
+
+  const handleConfirm = async () => {
+    if (!pendingDecision) return;
+    setIsConfirming(true);
+    try {
+      await handleDecision(pendingDecision);
+    } finally {
+      setIsConfirming(false);
+      setPendingDecision(null);
+    }
+  };
+
+  const handleCancel = () => {
+    if (isConfirming) return;
+    setPendingDecision(null);
+  };
+
+  const decisionTarget = data?.full_name || 'This user';
+  const modalCopy = pendingDecision === 'APPROVED'
+    ? {
+      title: 'Approve Verification',
+      message: `This will mark ${decisionTarget}'s identity as verified. This action cannot be undone.`,
+      confirmLabel: 'Yes, Approve',
+      confirmClassName: 'bg-green-600 hover:bg-green-700 disabled:hover:bg-green-600',
+    }
+    : pendingDecision === 'REJECTED'
+      ? {
+        title: 'Reject Verification',
+        message: `This will deny ${decisionTarget}'s verification request. They will need to resubmit. This action cannot be undone.`,
+        confirmLabel: 'Yes, Reject',
+        confirmClassName: 'bg-red-600 hover:bg-red-700 disabled:hover:bg-red-600',
+      }
+      : null;
 
   return (
     <div>
@@ -97,14 +135,27 @@ export default function AdminVerificationDetail() {
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
-                  <button type="button" disabled={isSaving} onClick={() => handleDecision('APPROVED')} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-60">Approve</button>
-                  <button type="button" disabled={isSaving} onClick={() => handleDecision('REJECTED')} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60">Reject</button>
+                  <button type="button" disabled={isSaving || isConfirming} onClick={() => setPendingDecision('APPROVED')} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-60">Approve</button>
+                  <button type="button" disabled={isSaving || isConfirming} onClick={() => setPendingDecision('REJECTED')} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60">Reject</button>
                 </div>
               )
             ) : null}
           </div>
         ) : null}
       </div>
+
+      {modalCopy ? (
+        <ConfirmationModal
+          isOpen={pendingDecision !== null}
+          title={modalCopy.title}
+          message={modalCopy.message}
+          confirmLabel={modalCopy.confirmLabel}
+          confirmClassName={modalCopy.confirmClassName}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+          isConfirming={isConfirming}
+        />
+      ) : null}
     </div>
   );
 }
