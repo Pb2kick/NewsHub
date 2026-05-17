@@ -18,12 +18,12 @@ import {
 import { supabase } from './features/shared';
 import { NotificationsProvider } from './features/news/context/NotificationsContext';
 
-const PROTECTED_PATH_PREFIXES = ['/home', '/news', '/elections', '/profile'];
+const PUBLIC_PATHS = new Set(['/', '/login', '/register', '/email-confirmed']);
 
-function isProtectedPath(pathname) {
-  return PROTECTED_PATH_PREFIXES.some((prefix) =>
-    pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+function shouldWrapNotifications(pathname) {
+  if (pathname.startsWith('/admin')) return false;
+  if (PUBLIC_PATHS.has(pathname)) return false;
+  return true;
 }
 
 /**
@@ -62,7 +62,7 @@ function ProtectedRoute({ children }) {
 
 function NotificationsGate({ children }) {
   const location = useLocation();
-  if (!isProtectedPath(location.pathname)) {
+  if (!shouldWrapNotifications(location.pathname)) {
     return children;
   }
   return (
