@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { BarChart2, ExternalLink, LayoutDashboard, Menu, Newspaper, ShieldCheck, User, Users, Vote, X } from 'lucide-react';
+import { ExternalLink, LayoutDashboard, Menu, Newspaper, ShieldCheck, User, Users, Vote, X } from 'lucide-react';
 import { supabase } from '../../shared/services/supabaseClient';
 import { clearAdminViewMode } from '../../auth/hooks/useAdminViewMode';
 import { getCurrentAdminProfile } from '../services/adminApi';
@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { label: 'Verifications', path: '/admin/verifications', icon: ShieldCheck },
   { label: 'Elections', path: '/admin/elections', icon: Vote },
   { label: 'Candidates', path: '/admin/candidates', icon: Users },
-  { label: 'Vote Statistics', path: '/admin/vote-statistics', icon: BarChart2 },
   { label: 'News Moderation', path: '/admin/news', icon: Newspaper },
 ];
 

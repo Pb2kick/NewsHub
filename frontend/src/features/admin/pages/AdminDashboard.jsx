@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { ArrowDownRight, ArrowUpRight, FileText, Minus, ShieldCheck, Users, Vote } from 'lucide-react';
+import { FileText, ShieldCheck, Users, Vote } from 'lucide-react';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminDataState from '../components/AdminDataState';
 import { useAdminResource } from '../hooks/useAdminResource';
@@ -48,43 +48,30 @@ export default function AdminDashboard() {
   const stats = data?.stats || { users: 0, elections: 0, articles: 0, pendingVerifications: 0 };
   const votes = data?.votes || [];
 
-  // PLACEHOLDER — replace with real delta API when available.
   const cards = [
     {
       label: 'Total Users',
       value: stats.users,
       icon: Users,
       iconBg: 'bg-blue-600',
-      trendText: '+12% from last week',
-      trendTone: 'text-emerald-600',
-      trendIcon: ArrowUpRight,
     },
     {
       label: 'Active Elections',
       value: stats.elections,
       icon: Vote,
       iconBg: 'bg-purple-600',
-      trendText: '0% from last week',
-      trendTone: 'text-slate-500',
-      trendIcon: Minus,
     },
     {
       label: 'News Articles',
       value: stats.articles,
       icon: FileText,
       iconBg: 'bg-emerald-600',
-      trendText: '+5% from last week',
-      trendTone: 'text-emerald-600',
-      trendIcon: ArrowUpRight,
     },
     {
       label: 'Pending Verifications',
       value: stats.pendingVerifications,
       icon: ShieldCheck,
       iconBg: 'bg-amber-500',
-      trendText: '-8% from last week',
-      trendTone: 'text-rose-600',
-      trendIcon: ArrowDownRight,
     },
   ];
 
@@ -124,10 +111,6 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <p className="text-2xl font-bold text-slate-900 mt-2">{card.value.toLocaleString()}</p>
-                <div className={`mt-2 inline-flex items-center gap-1 text-xs font-semibold ${card.trendTone}`}>
-                  <card.trendIcon className="w-3.5 h-3.5" />
-                  {card.trendText}
-                </div>
               </article>
             ))}
           </section>
