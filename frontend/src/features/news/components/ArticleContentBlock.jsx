@@ -65,6 +65,10 @@ function CommentAvatar({ photoUrl, displayName, size = 'md' }) {
  * @param {{
  *   articleId:    string | number,
  *   articleTitle: string,
+ *   article:      object | null,   Optional full article object — stored as a
+ *                                  snapshot in reply notifications so recipients
+ *                                  can navigate back without a location-scoped
+ *                                  feed lookup. Safe to omit; defaults to null.
  *   excerpt:      string,
  *   paragraphs:   string[],
  *   sourceUrl:    string,
@@ -73,6 +77,7 @@ function CommentAvatar({ photoUrl, displayName, size = 'md' }) {
 export default function ArticleContentBlock({
   articleId,
   articleTitle = '',
+  article      = null,
   excerpt,
   paragraphs,
   sourceUrl,
@@ -85,7 +90,8 @@ export default function ArticleContentBlock({
     currentUser,
     submitComment,
     deleteComment,
-  } = useArticleComments(articleId, articleTitle);
+  } = useArticleComments(articleId, articleTitle, article);
+
 
   // ── Main compose state ───────────────────────────────────────────────────
   const [draft,        setDraft]        = useState('');

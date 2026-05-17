@@ -24,12 +24,38 @@ const SELECT_COLS =
   'id, article_id, user_id, display_name, content, created_at, parent_id, profile_photo_url';
 
 /**
+ * Builds the minimal article snapshot stored in the notification row.
+ * Using a fixed key set avoids accidentally persisting large or sensitive fields.
+ * The snapshot is write-once — it is never mutated after insert.
+ *
+ * @param {object | null} article
+ * @returns {object | null}
+ */
+function buildArticleSnapshot(article) {
+  if (!article) return null;
+  return {
+    id:          article.id          ?? null,
+    title:       article.title       || '',
+    excerpt:     article.excerpt     || '',
+    sourceUrl:   article.sourceUrl   || '',
+    imageUrl:    article.imageUrl    || '',
+    publishedAt: article.publishedAt || '',
+    source:      article.source      || '',
+  };
+}
+
+/**
  * Loads and manages real-time comments (flat + threaded) for a specific article.
  *
  * @param {string | number} articleId
- * @param {string}          [articleTitle='']  Used when inserting reply notifications.
+ * @param {string}          [articleTitle='']   Used in reply notification text.
+ * @param {object | null}   [article=null]      Full article object — stored as a
+ *                                               JSONB snapshot in reply notifications
+ *                                               so the recipient can navigate directly
+ *                                               to the article without a location-scoped
+ *                                               feed lookup.
  */
-export function useArticleComments(articleId, articleTitle = '') {
+export function useArticleComments(articleId, articleTitle = '', article = null) {
   const [comments,    setComments]    = useState([]);
   const [isLoading,   setIsLoading]   = useState(true);
   const [error,       setError]       = useState(null);
@@ -134,7 +160,6 @@ export function useArticleComments(articleId, articleTitle = '') {
       setIsLoading(false);
     };
 
-
     loadComments();
 
     const channel = supabase
@@ -238,7 +263,6 @@ export function useArticleComments(articleId, articleTitle = '') {
         photoUrl = photoUrlCacheRef.current;
       }
 
-
       // ── Insert comment row ───────────────────────────────────────────────
       const { data, error: insertError } = await supabase
         .from('article_comments')
@@ -267,6 +291,10 @@ export function useArticleComments(articleId, articleTitle = '') {
       }
 
       // ── Insert reply notification (fire-and-forget) ──────────────────────
+      // article_snapshot is stored write-once at insert time so the notification
+      // recipient can navigate directly to the article (via routeArticle fast path)
+      // without a location-scoped feed lookup — which would fail for cross-region
+      // articles.
       if (parentId !== null && data?.id) {
         // Read latest comments state via functional updater trick (ref snapshot).
         setComments((prev) => {
@@ -282,6 +310,7 @@ export function useArticleComments(articleId, articleTitle = '') {
                 comment_id:         data.id,
                 article_id:         resolvedArticleId,
                 article_title:      articleTitle || '',
+                article_snapshot:   buildArticleSnapshot(article),
                 is_read:            false,
               })
               .then(({ error: notifErr }) => {
@@ -296,7 +325,7 @@ export function useArticleComments(articleId, articleTitle = '') {
 
       return data;
     },
-    [currentUser, resolvedArticleId, articleTitle]
+    [currentUser, resolvedArticleId, articleTitle, article]
   );
 
   // ── deleteComment ────────────────────────────────────────────────────────

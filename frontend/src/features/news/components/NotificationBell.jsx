@@ -43,7 +43,11 @@ function NotifAvatar({ photoUrl, displayName }) {
 }
 
 /**
- * Live notification bell with dropdown inbox.
+ * Live notification bell with Unread / All tabbed dropdown inbox.
+ *
+ * REDIRECT BUG FIX: row clicks pass notif.article_snapshot as route state so
+ * useArticleDetails uses the fast path (routeArticle) and never falls back to
+ * the location-scoped feed that may not contain the article.
  *
  * @param {{
  *   notifications: Array,
@@ -58,9 +62,21 @@ export default function NotificationBell({
   markOneRead,
   markAllRead,
 }) {
-  const navigate         = useNavigate();
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef     = useRef(null);
+  const navigate = useNavigate();
+
+  const [isOpen,    setIsOpen]    = useState(false);
+  const [activeTab, setActiveTab] = useState('unread'); // 'unread' | 'all'
+
+  const containerRef      = useRef(null);
+  const prevUnreadRef     = useRef(unreadCount);
+
+  // ── Auto-switch to Unread tab when a new notification arrives ────────────
+  useEffect(() => {
+    if (unreadCount > prevUnreadRef.current) {
+      setActiveTab('unread');
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
 
   // ── Close on outside click ───────────────────────────────────────────────
   useEffect(() => {
@@ -73,11 +89,18 @@ export default function NotificationBell({
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
+  // ── Row click: mark read + navigate with article snapshot ────────────────
+  // Passing article_snapshot as route state means useArticleDetails uses the
+  // routeArticle fast path and never calls the location-scoped feed API,
+  // which would return "no article for your location" for cross-region articles.
   const handleRowClick = useCallback(
     async (notif) => {
       await markOneRead(notif.id);
-      setIsOpen(false);
-      navigate(`/news/${notif.article_id}`);
+      // Do NOT close the dropdown here — it closes naturally via outside-click
+      // once the user has navigated away, per the design spec.
+      navigate(`/news/${notif.article_id}`, {
+        state: { article: notif.article_snapshot ?? null },
+      });
     },
     [markOneRead, navigate]
   );
@@ -86,9 +109,15 @@ export default function NotificationBell({
     await markAllRead();
   }, [markAllRead]);
 
+  // ── Filtered list for the active tab ─────────────────────────────────────
+  const displayList =
+    activeTab === 'unread'
+      ? notifications.filter((n) => !n.is_read)
+      : notifications;
+
   return (
     <div ref={containerRef} className="relative">
-      {/* Bell trigger */}
+      {/* ── Bell trigger ──────────────────────────────────────────────────── */}
       <button
         type="button"
         id="notification-bell-btn"
@@ -104,37 +133,70 @@ export default function NotificationBell({
         )}
       </button>
 
-      {/* Dropdown panel */}
+      {/* ── Dropdown panel ────────────────────────────────────────────────── */}
       {isOpen && (
         <div className="absolute right-0 top-11 w-80 rounded-xl border border-slate-200 bg-white shadow-xl z-50 overflow-hidden">
+
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <span className="text-sm font-bold text-slate-900">Notifications</span>
-            {unreadCount > 0 && (
+          <div className="px-4 pt-3 pb-2 border-b border-slate-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-slate-900">Notifications</span>
+              {activeTab === 'unread' && unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMarkAll}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
+
+            {/* Tab pills */}
+            <div className="flex gap-1.5">
               <button
                 type="button"
-                onClick={handleMarkAll}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+                onClick={() => setActiveTab('unread')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  activeTab === 'unread'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
               >
-                Mark all as read
+                Unread{unreadCount > 0 ? ` (${unreadCount})` : ''}
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('all')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  activeTab === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All
+              </button>
+            </div>
           </div>
 
-          {/* List */}
+          {/* Notification list */}
           <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-            {notifications.length === 0 ? (
+            {displayList.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
-                No notifications yet.
+                {activeTab === 'unread'
+                  ? "You're all caught up."
+                  : 'No notifications yet.'}
               </div>
             ) : (
-              notifications.map((notif) => (
+              displayList.map((notif) => (
                 <button
                   key={notif.id}
                   type="button"
                   onClick={() => handleRowClick(notif)}
-                  className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors ${
-                    !notif.is_read ? 'bg-blue-50' : 'bg-white'
+                  className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-l-2 ${
+                    !notif.is_read
+                      ? 'bg-blue-50 border-blue-500'
+                      : 'bg-white border-transparent'
                   }`}
                 >
                   <NotifAvatar
@@ -142,11 +204,11 @@ export default function NotificationBell({
                     displayName={notif.actor_display_name}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-800 leading-snug">
+                    <p className={`text-sm leading-snug ${!notif.is_read ? 'text-slate-900' : 'text-slate-500'}`}>
                       <span className="font-semibold">{notif.actor_display_name}</span>
                       {' replied to your comment'}
                       {notif.article_title ? (
-                        <span className="text-slate-500"> on &quot;{notif.article_title}&quot;</span>
+                        <span className="text-slate-400"> on &quot;{notif.article_title}&quot;</span>
                       ) : null}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">

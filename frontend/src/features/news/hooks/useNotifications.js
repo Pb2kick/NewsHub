@@ -5,6 +5,11 @@ import { supabase } from '../../shared/services/supabaseClient';
 /**
  * Manages live notifications for the authenticated user.
  *
+ * unreadCount is DERIVED from the local notifications array (filtered where
+ * !is_read) so it always stays in sync with optimistic mark-read updates —
+ * storing it as independent state would cause it to drift after optimistic
+ * flips before the DB round-trip completes.
+ *
  * @param {string | null} currentUserId  auth.uid() of the current user.
  * @returns {{
  *   notifications: Array,
@@ -23,6 +28,7 @@ export function useNotifications(currentUserId) {
     let isMounted = true;
 
     const load = async () => {
+      // SELECT * captures article_snapshot (JSONB) along with all other columns.
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
@@ -30,7 +36,11 @@ export function useNotifications(currentUserId) {
         .order('created_at', { ascending: false });
 
       if (!isMounted) return;
-      if (!error) setNotifications(data || []);
+      if (error) {
+        console.warn('useNotifications load failed:', error.message);
+        return;
+      }
+      setNotifications(data || []);
     };
 
     load();
@@ -62,9 +72,9 @@ export function useNotifications(currentUserId) {
     };
   }, [currentUserId]);
 
-  // ── markOneRead ──────────────────────────────────────────────────────────
+  // ── markOneRead — optimistic, reverts on DB error ────────────────────────
   const markOneRead = useCallback(async (id) => {
-    // Optimistic update
+    // Optimistic: flip locally before the network round-trip.
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
@@ -75,7 +85,7 @@ export function useNotifications(currentUserId) {
       .eq('id', id);
 
     if (error) {
-      // Revert on failure
+      // Revert the optimistic update on failure.
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: false } : n))
       );
@@ -83,11 +93,11 @@ export function useNotifications(currentUserId) {
     }
   }, []);
 
-  // ── markAllRead ──────────────────────────────────────────────────────────
+  // ── markAllRead — optimistic, refetches on DB error ──────────────────────
   const markAllRead = useCallback(async () => {
     if (!currentUserId) return;
 
-    // Optimistic
+    // Optimistic: mark every entry read immediately.
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
 
     const { error } = await supabase
@@ -97,7 +107,7 @@ export function useNotifications(currentUserId) {
       .eq('is_read', false);
 
     if (error) {
-      // Refetch to restore true state
+      // Restore true state from the DB on failure.
       const { data } = await supabase
         .from('notifications')
         .select('*')
@@ -108,6 +118,9 @@ export function useNotifications(currentUserId) {
     }
   }, [currentUserId]);
 
+  // ── unreadCount — DERIVED, never stored as separate state ────────────────
+  // Keeping this as a memo over `notifications` ensures it updates instantly
+  // after any optimistic flip without waiting for a DB round-trip.
   const unreadCount = useMemo(
     () => notifications.filter((n) => !n.is_read).length,
     [notifications]
