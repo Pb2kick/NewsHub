@@ -1,6 +1,6 @@
 
 import './App.css';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Login, Register, EmailConfirmed, useAdminAccess } from './features/auth';
 import { Home, Article } from './features/news';
@@ -16,6 +16,15 @@ import {
   AdminNews,
 } from './features/admin';
 import { supabase } from './features/shared';
+import { NotificationsProvider } from './features/news/context/NotificationsContext';
+
+const PROTECTED_PATH_PREFIXES = ['/home', '/news', '/elections', '/profile'];
+
+function isProtectedPath(pathname) {
+  return PROTECTED_PATH_PREFIXES.some((prefix) =>
+    pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
 
 /**
  * Restricts route access to authenticated users.
@@ -51,6 +60,18 @@ function ProtectedRoute({ children }) {
   return user ? children : <Navigate to="/login" replace />;
 }
 
+function NotificationsGate({ children }) {
+  const location = useLocation();
+  if (!isProtectedPath(location.pathname)) {
+    return children;
+  }
+  return (
+    <ProtectedRoute>
+      <NotificationsProvider>{children}</NotificationsProvider>
+    </ProtectedRoute>
+  );
+}
+
 /**
  * Restricts route access to authenticated admin users only.
  * @param {{ children: React.ReactNode }} props
@@ -79,29 +100,31 @@ function App() {
   return (
     <Router>
       <div className="App">
-        <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/home" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-          <Route path="/news/:id" element={<ProtectedRoute><Article /></ProtectedRoute>} />
-          <Route path="/elections" element={<ProtectedRoute><Elections /></ProtectedRoute>} />
-          <Route path="/elections/:electionId" element={<ProtectedRoute><ElectionDetails /></ProtectedRoute>} />
-          <Route path="/elections/:electionId/candidates/:candidateId" element={<ProtectedRoute><CandidateProfile /></ProtectedRoute>} />
-          <Route path="/elections/:electionId/verify" element={<ProtectedRoute><VoteVerification /></ProtectedRoute>} />
-          <Route path="/elections/:electionId/vote" element={<ProtectedRoute><Vote /></ProtectedRoute>} />
-          <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
-            <Route index element={<AdminDashboard />} />
-            <Route path="verifications" element={<AdminVerifications />} />
-            <Route path="verifications/:verificationId" element={<AdminVerificationDetail />} />
-            <Route path="elections" element={<AdminElections />} />
-            <Route path="candidates" element={<AdminCandidates />} />
-            <Route path="news" element={<AdminNews />} />
-          </Route>
-          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-          <Route path="/email-confirmed" element={<EmailConfirmed />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+        <NotificationsGate>
+          <Routes>
+            <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/home" element={<Home />} />
+            <Route path="/news/:id" element={<Article />} />
+            <Route path="/elections" element={<Elections />} />
+            <Route path="/elections/:electionId" element={<ElectionDetails />} />
+            <Route path="/elections/:electionId/candidates/:candidateId" element={<CandidateProfile />} />
+            <Route path="/elections/:electionId/verify" element={<VoteVerification />} />
+            <Route path="/elections/:electionId/vote" element={<Vote />} />
+            <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
+              <Route index element={<AdminDashboard />} />
+              <Route path="verifications" element={<AdminVerifications />} />
+              <Route path="verifications/:verificationId" element={<AdminVerificationDetail />} />
+              <Route path="elections" element={<AdminElections />} />
+              <Route path="candidates" element={<AdminCandidates />} />
+              <Route path="news" element={<AdminNews />} />
+            </Route>
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/email-confirmed" element={<EmailConfirmed />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </NotificationsGate>
       </div>
     </Router>
   );
