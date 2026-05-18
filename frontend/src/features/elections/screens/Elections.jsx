@@ -8,7 +8,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Calendar, Filter, MapPin, Search, Vote, X } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
-import { getElections } from '../services/electionsApi';
+import { getElectionsWithCounts } from '../services/electionsApi';
 
 const ELECTION_FILTERS = ['All', 'National', 'State', 'Local'];
 
@@ -32,7 +32,7 @@ export default function Elections() {
     const load = async () => {
       setIsLoading(true);
       setLoadError('');
-      const rows = await getElections();
+      const rows = await getElectionsWithCounts();
       if (!active) return;
       if (rows === null) {
         setLoadError('Unable to load elections right now.');

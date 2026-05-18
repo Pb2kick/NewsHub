@@ -65,6 +65,125 @@ export async function getElections() {
   }
 }
 
+export async function getElectionCandidateCount(electionId) {
+  if (!electionId) return 0;
+  try {
+    const { count, error } = await supabase
+      .from('candidates')
+      .select('id', { count: 'exact', head: true })
+      .eq('election_id', electionId);
+
+    if (error) return 0;
+    return Number(count || 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function getElectionsWithCounts() {
+  const elections = await getElections();
+  if (!elections || elections.length === 0) {
+    return elections || [];
+  }
+
+  const counts = await Promise.all(
+    elections.map((election) => getElectionCandidateCount(election.id))
+  );
+
+  return elections.map((election, index) => ({
+    ...election,
+    candidatesCount: counts[index] ?? 0,
+  }));
+}
+
+export async function checkHasVoted(userId, electionId) {
+  if (!userId || !electionId) return false;
+  try {
+    const { data, error } = await supabase
+      .from('votes')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('election_id', electionId)
+      .maybeSingle();
+
+    if (error) return false;
+    return Boolean(data?.id);
+  } catch {
+    return false;
+  }
+}
+
+export async function castVote({ electionId, candidateId, userId }) {
+  try {
+    if (!electionId || !candidateId || !userId) {
+      return { success: false, reason: 'UNEXPECTED', message: 'Missing vote details.' };
+    }
+
+    const { data: existingVote, error: voteError } = await supabase
+      .from('votes')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('election_id', electionId)
+      .maybeSingle();
+
+    if (voteError) {
+      return { success: false, reason: 'UNEXPECTED', message: voteError.message };
+    }
+    if (existingVote?.id) {
+      return { success: false, reason: 'ALREADY_VOTED' };
+    }
+
+    const { data: electionRow, error: electionError } = await supabase
+      .from('elections')
+      .select('status')
+      .eq('id', electionId)
+      .maybeSingle();
+
+    if (electionError) {
+      return { success: false, reason: 'UNEXPECTED', message: electionError.message };
+    }
+    const electionStatus = String(electionRow?.status || '').toUpperCase();
+    if (electionStatus !== 'ACTIVE') {
+      return { success: false, reason: 'NOT_ACTIVE' };
+    }
+
+    const { data: verificationRow, error: verificationError } = await supabase
+      .from('verifications')
+      .select('status')
+      .eq('user_id', userId)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (verificationError) {
+      return { success: false, reason: 'UNEXPECTED', message: verificationError.message };
+    }
+    const verificationStatus = String(verificationRow?.status || '').toUpperCase();
+    if (verificationStatus !== 'APPROVED') {
+      return { success: false, reason: 'NOT_VERIFIED' };
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('votes')
+      .insert({
+        user_id: userId,
+        candidate_id: candidateId,
+        election_id: electionId,
+        voted_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      return { success: false, reason: 'INSERT_FAILED', message: insertError.message };
+    }
+
+    return { success: true, voteId: inserted?.id || null };
+  } catch (error) {
+    return { success: false, reason: 'UNEXPECTED', message: error?.message || 'Unexpected error.' };
+  }
+}
+
 export async function getElectionById(id) {
   try {
     const { data, error } = await supabase

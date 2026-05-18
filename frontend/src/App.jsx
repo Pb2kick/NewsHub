@@ -14,6 +14,7 @@ import {
   AdminElections,
   AdminCandidates,
   AdminNews,
+  AdminUsers,
 } from './features/admin';
 import { supabase } from './features/shared';
 import { NotificationsProvider } from './features/news/context/NotificationsContext';
@@ -130,9 +131,10 @@ function App() {
               <Route path="verifications/:verificationId" element={<AdminVerificationDetail />} />
               <Route path="elections" element={<AdminElections />} />
               <Route path="candidates" element={<AdminCandidates />} />
+              <Route path="users" element={<AdminUsers />} />
               <Route path="news" element={<AdminNews />} />
             </Route>
-            <Route path="/profile" element={<Profile />} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/email-confirmed" element={<EmailConfirmed />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>

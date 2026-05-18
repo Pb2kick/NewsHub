@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../shared/services/supabaseClient';
-import { getCandidatesByElectionId, getElections } from '../../elections/services/electionsApi';
+import { getElectionsWithCounts } from '../../elections/services/electionsApi';
 import HomeFooter from '../components/HomeFooter';
 import HomeHeader from '../components/HomeHeader';
 import HomeHeroSection from '../components/HomeHeroSection';
@@ -81,29 +81,14 @@ export default function Home() {
   useEffect(() => {
     const loadActiveElections = async () => {
       try {
-        const allElections = await getElections();
+        const allElections = await getElectionsWithCounts();
         if (!allElections || allElections.length === 0) {
           setActiveElections([]);
           return;
         }
 
         const active = allElections.filter((election) => election?.status === 'Active');
-        if (active.length === 0) {
-          setActiveElections([]);
-          return;
-        }
-
-        const enriched = await Promise.all(
-          active.map(async (election) => {
-            const candidates = await getCandidatesByElectionId(election.id);
-            return {
-              ...election,
-              candidatesCount: candidates.length,
-            };
-          })
-        );
-
-        setActiveElections(enriched);
+        setActiveElections(active);
       } catch {
         setActiveElections([]);
       }

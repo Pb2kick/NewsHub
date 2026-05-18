@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { label: 'Verifications', path: '/admin/verifications', icon: ShieldCheck },
   { label: 'Elections', path: '/admin/elections', icon: Vote },
   { label: 'Candidates', path: '/admin/candidates', icon: Users },
+  { label: 'Users', path: '/admin/users', icon: Users },
   { label: 'News Moderation', path: '/admin/news', icon: Newspaper },
 ];
 

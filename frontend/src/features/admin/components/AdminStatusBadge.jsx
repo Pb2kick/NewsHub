@@ -8,11 +8,13 @@ import React from 'react';
 export default function AdminStatusBadge({ value }) {
   const normalized = String(value || '').toUpperCase();
   const classes =
-    normalized === 'APPROVED' || normalized === 'ACTIVE'
+    normalized === 'APPROVED' || normalized === 'ACTIVE' || normalized === 'ADMIN'
       ? 'bg-green-100 text-green-700'
-      : normalized === 'REJECTED' || normalized === 'ENDED'
-        ? 'bg-red-100 text-red-700'
-        : 'bg-amber-100 text-amber-700';
+      : normalized === 'USER'
+        ? 'bg-blue-100 text-blue-700'
+        : normalized === 'REJECTED' || normalized === 'ENDED' || normalized === 'BANNED'
+          ? 'bg-red-100 text-red-700'
+          : 'bg-amber-100 text-amber-700';
 
   return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${classes}`}>{normalized || 'UNKNOWN'}</span>;
 }

@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ExternalLink, Trash2 } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
+import ConfirmationModal from '../components/ConfirmationModal';
 import { useAdminResource } from '../hooks/useAdminResource';
 import { deleteNews, listNews } from '../services/adminApi';
 
@@ -12,6 +13,8 @@ import { deleteNews, listNews } from '../services/adminApi';
 export default function AdminNews() {
   const [search, setSearch] = useState('');
   const [message, setMessage] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const loadNews = useCallback(() => listNews(), []);
   const { data, loading, error, reload } = useAdminResource(loadNews, []);
 
@@ -24,14 +27,21 @@ export default function AdminNews() {
   }, [data, search]);
 
   /** Handles article delete action with confirmation. */
-  const handleDelete = async (newsId) => {
-    const confirmed = window.confirm('Delete this news item?');
-    if (!confirmed) {
+  const handleDelete = async () => {
+    if (!pendingDeleteId) {
       return;
     }
-    await deleteNews(newsId);
-    setMessage('News item removed.');
-    await reload();
+    setIsDeleting(true);
+    try {
+      await deleteNews(pendingDeleteId);
+      setMessage('News item removed.');
+      await reload();
+    } catch (error) {
+      setMessage(error?.message || 'Unable to delete news item.');
+    } finally {
+      setIsDeleting(false);
+      setPendingDeleteId(null);
+    }
   };
 
   return (
@@ -77,13 +87,24 @@ export default function AdminNews() {
                       <span className="text-slate-400 text-xs">-</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right"><button type="button" onClick={() => handleDelete(item.id)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4" />Delete</button></td>
+                  <td className="px-4 py-3 text-right"><button type="button" onClick={() => setPendingDeleteId(item.id)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"><Trash2 className="w-4 h-4" />Delete</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : null}
       </div>
+
+      <ConfirmationModal
+        isOpen={pendingDeleteId !== null}
+        title="Delete Article"
+        message="This will permanently remove the article from the news feed. This action cannot be undone."
+        confirmLabel="Yes, Delete"
+        confirmClassName="bg-red-600 text-white hover:bg-red-700"
+        onConfirm={handleDelete}
+        onCancel={() => setPendingDeleteId(null)}
+        isConfirming={isDeleting}
+      />
     </div>
   );
 }

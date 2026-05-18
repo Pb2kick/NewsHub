@@ -246,6 +246,89 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
       'Run the RLS SQL block in the Supabase SQL Editor and redeploy.'
     );
   }
+
+  const { data: verificationRow, error: verificationError } = await supabase
+    .from('verifications')
+    .select('user_id, full_name')
+    .eq('id', verificationId)
+    .maybeSingle();
+
+  if (!verificationError && verificationRow?.user_id) {
+    const notificationType = String(status || '').toUpperCase() === 'APPROVED'
+      ? 'VERIFICATION_APPROVED'
+      : 'VERIFICATION_REJECTED';
+
+    // Notify the user of the admin's decision so their Profile page reflects the outcome in real time via the existing
+    // useNotifications Realtime subscription.
+    try {
+      const { error: notifyError } = await supabase.from('notifications').insert({
+        recipient_user_id: verificationRow.user_id,
+        actor_user_id: adminUserId,
+        actor_display_name: 'NewsHub Admin',
+        actor_photo_url: '',
+        comment_id: null,
+        article_id: null,
+        article_title: null,
+        article_snapshot: null,
+        is_read: false,
+        type: notificationType,
+      });
+      if (notifyError) {
+        // Notification insert failures should not block the verification update.
+      }
+    } catch {
+      // Swallow notification failures silently.
+    }
+  }
+}
+
+/**
+ * Lists users with optional search filtering.
+ * @param {{ search?: string }} params
+ * @returns {Promise<Array<any>>}
+ */
+export async function listUsers({ search } = {}) {
+  try {
+    let query = supabase
+      .from('users')
+      .select('id,email,full_name,role,created_at,is_deleted')
+      .order('created_at', { ascending: false })
+      .or('is_deleted.is.null,is_deleted.eq.false');
+
+    const term = String(search || '').trim();
+    if (term) {
+      const lower = term.toLowerCase();
+      query = query.or(`email.ilike.%${lower}%,full_name.ilike.%${lower}%`);
+    }
+
+    const { data, error } = await query;
+    if (error) return [];
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Bans a user by setting role to BANNED.
+ * @param {string} userId
+ * @returns {Promise<{ success: boolean, message?: string }>}
+ */
+export async function banUser(userId) {
+  // 'BANNED' role blocks login via RLS policies on the auth layer. Requires a matching RLS policy — see migration block.
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({ role: 'BANNED' })
+      .eq('id', userId);
+
+    if (error) {
+      return { success: false, message: toErrorMessage(error, 'Unable to ban user.') };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: error?.message || 'Unable to ban user.' };
+  }
 }
 
 /**
