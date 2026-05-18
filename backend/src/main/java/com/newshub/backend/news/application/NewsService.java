@@ -62,6 +62,12 @@ public class NewsService {
         String requestedLocation = normalizeLocation(location, latitude, longitude, area);
         int currentYear = LocalDateTime.now().getYear();
 
+        // Country must be explicitly provided by the frontend. Returning empty feed for unresolved location prevents cross-user DB
+        // contamination. Frontend's loadLocationNews() already guards this.
+        if (requestedCountry.isBlank() || requestedLocation.isBlank()) {
+            return new NewsFeedPage(List.of(), 0, false);
+        }
+
         // DB-first: only call live fetch when the DB has no current-year articles for this scope.
         long existingCount = countForScope(requestedLocation, requestedCountry, currentYear);
         if (existingCount == 0) {
@@ -80,7 +86,7 @@ public class NewsService {
      *
      * Dispatches to the appropriate repository query based on the location mode:
      *  - Local         → searchByKeywordAndArea    (matches region only — BUG 2 FIX: country OR branch removed)
-     *  - National      → searchByKeywordAndNational (matches domestic country / National tag, excludes region-tagged Local rows)
+     *  - National      → searchByKeywordAndNational (matches domestic country, excludes region-tagged Local rows)
      *  - International → searchByKeywordAndInternational (matches country='International' AND region=:domesticCountry — BUG 1 FIX)
      *  - null / unresolved → List.of() — never dumps the whole DB on an unscoped request.
      *
@@ -106,6 +112,11 @@ public class NewsService {
             return List.of(); // location context not yet resolved — do not query
         }
 
+        if (LOCATION_NATIONAL.equalsIgnoreCase(location)
+                && (country == null || country.isBlank())) {
+            return List.of(); // country unresolved — do not query national scope
+        }
+
         String keyword = query.trim();
         PageRequest page = PageRequest.of(0, 8);
         // Use country as-is; blank/null means the caller has not resolved it yet.
@@ -123,7 +134,7 @@ public class NewsService {
 
         if (LOCATION_NATIONAL.equalsIgnoreCase(location)) {
             return newsArticleRepository
-                    .searchByKeywordAndNational(keyword, resolvedCountry, LOCATION_NATIONAL, page)
+                    .searchByKeywordAndNational(keyword, resolvedCountry, page)
                     .stream()
                     .map(this::toFeedItem)
                     .toList();
@@ -176,7 +187,10 @@ public class NewsService {
      * @return normalized country value
      */
     private String normalizeCountry(String country) {
-        return firstNonBlank(country, "Philippines");
+        if (country == null || country.isBlank()) {
+            return "";
+        }
+        return country.trim();
     }
 
     /**
@@ -496,8 +510,8 @@ public class NewsService {
         } else if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
             // BUG 2 FIX: findNationalNewsByYear now excludes articles with a non-null region
             // so city-specific Local articles never appear in the National feed.
-            total = newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
-            articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, LOCATION_NATIONAL, currentYear, pageRequest);
+            total = newsArticleRepository.countNationalNews(requestedCountry, currentYear);
+            articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, currentYear, pageRequest);
         } else if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
             // BUG 1 FIX: new 1-country signature — matches country='International' AND region=:domesticCountry
             // instead of the old NOT IN approach that pooled all users' International articles together.
@@ -532,7 +546,7 @@ public class NewsService {
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
             // BUG 2 FIX: countNationalNews now excludes non-null region rows — consistent
             // with the updated findNationalNewsByYear used in servePagedFromDb.
-            return newsArticleRepository.countNationalNews(requestedCountry, LOCATION_NATIONAL, currentYear);
+            return newsArticleRepository.countNationalNews(requestedCountry, currentYear);
         }
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
             // BUG 1+3 FIX: use the new 1-country signature that matches on region=:domesticCountry

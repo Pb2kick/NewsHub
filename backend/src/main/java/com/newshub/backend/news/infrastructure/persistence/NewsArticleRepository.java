@@ -116,12 +116,10 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
 
     /**
      * Full-text keyword search filtered to the national scope.
-     * Returns articles whose country matches the domestic country OR whose
-     * country field equals the legacy "National" tag.
+     * Returns articles whose country matches the domestic country.
      *
-     * @param keyword         lower-cased search phrase
-     * @param country         domestic country context
-     * @param nationalCountry legacy "National" tag
+     * @param keyword lower-cased search phrase
+     * @param country domestic country context
      * @return matching news entities ordered by most recent first
      */
     @Query("""
@@ -131,17 +129,13 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
          or lower(n.summary) like concat('%', lower(:keyword), '%')
          or lower(n.content) like concat('%', lower(:keyword), '%')
         )
-        and (
-            lower(n.country) = lower(:country)
-         or lower(n.country) = lower(:nationalCountry)
-        )
+        and lower(n.country) = lower(:country)
         and (n.region is null or n.region = '')
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndNational(
             @Param("keyword") String keyword,
             @Param("country") String country,
-            @Param("nationalCountry") String nationalCountry,
             org.springframework.data.domain.Pageable pageable);
 
     /**
@@ -195,15 +189,13 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * (which carry a non-null region value) never bleed into the National feed. */
     @Query("""
             select n from NewsArticle n
-            where (lower(n.country) = lower(:country)
-               or lower(n.country) = lower(:nationalCountry))
+            where lower(n.country) = lower(:country)
               and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
     List<NewsArticle> findNationalNewsByYear(
             @Param("country") String country,
-            @Param("nationalCountry") String nationalCountry,
             @Param("year") int year,
             Pageable pageable);
 
@@ -211,14 +203,12 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      * BUG 2 FIX: same region IS NULL guard as findNationalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
-            where (lower(n.country) = lower(:country)
-               or lower(n.country) = lower(:nationalCountry))
+            where lower(n.country) = lower(:country)
               and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
             """)
     long countNationalNews(
             @Param("country") String country,
-            @Param("nationalCountry") String nationalCountry,
             @Param("year") int year);
 
     /** International-scope paged fetch, current year only.
