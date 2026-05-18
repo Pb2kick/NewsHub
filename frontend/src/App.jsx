@@ -97,6 +97,18 @@ function AdminRoute({ children }) {
  * @returns {JSX.Element}
  */
 function App() {
+  useEffect(() => {
+    // Render free plan warm-up ping — fires immediately on mount to reduce cold-start latency.
+    // The real news fetch fires after location resolves; by then the server should already be awake.
+    try {
+      const baseUrl = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
+      if (!baseUrl) return;
+      fetch(`${baseUrl}/api/news?size=1`, { method: 'GET' }).catch(() => {});
+    } catch {
+      // Swallow warm-up errors silently.
+    }
+  }, []);
+
   return (
     <Router>
       <div className="App">

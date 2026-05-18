@@ -279,6 +279,24 @@ export async function resolveLocationLabel(latitude, longitude, signal) {
  */
 export async function resolveLocationDetails(latitude, longitude, signal) {
   const fallback = fallbackLocationFromCoordinates(latitude, longitude);
+  const cacheKey = `newshub.geocode.${latitude.toFixed(2)}.${longitude.toFixed(2)}`;
+  const cacheTtlMs = 86400000;
+
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const isFresh = typeof parsed?.cachedAt === 'number' && (Date.now() - parsed.cachedAt) < cacheTtlMs;
+      if (isFresh && parsed?.details) {
+        const details = parsed.details;
+        if (details?.area && details?.country && details?.label) {
+          return details;
+        }
+      }
+    }
+  } catch {
+    // Ignore cache read failures.
+  }
 
   try {
     const params = new URLSearchParams({
@@ -318,13 +336,22 @@ export async function resolveLocationDetails(latitude, longitude, signal) {
       ? disambiguateByCoords(rawArea, latitude, longitude)
       : rawArea;
 
-    return {
+    const details = {
       area,
       country,
       label: `${area}, ${country}`,
       latitude,
       longitude,
     };
+    try {
+      window.localStorage.setItem(
+        cacheKey,
+        JSON.stringify({ cachedAt: Date.now(), details })
+      );
+    } catch {
+      // Ignore cache write failures.
+    }
+    return details;
   } catch {
     return {
       area: fallback.area,

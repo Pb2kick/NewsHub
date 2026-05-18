@@ -146,71 +146,89 @@ export function useLocationNews() {
     setLocationError('');
 
     /*
-     * CHANGES to this geolocation block:
-     * 1. timeout increased from 8000 → 20000 ms — mobile GPS indoors can take
-     *    15-30 s for a first fix; 8 s was consistently too short.
-     * 2. Success callback uses a SEPARATE AbortController (nominatimAbort) for
-     *    the Nominatim fetch so the outer cleanup (abortController.abort()) does
-     *    NOT cancel an in-flight Nominatim request on re-render.  Previously both
-     *    used the same signal, causing the fetch to silently abort and fall back.
-     * 3. Error callback now tries ipapi.co (free, no API key) as an IP-based
-     *    fallback before setting the 'Location not yet resolved' sentinel.
-     *    The fetch is guarded by abortController.signal so it is cancelled on unmount.
+     * Changes to this geolocation block:
+     * 1. GPS and IP resolve in parallel; first non-null result wins.
+     * 2. GPS timeout reduced to 10000 ms.
+     * 3. Nominatim uses a separate AbortController so cleanup does not cancel it.
      */
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        // Separate controller — outer abort will NOT kill this Nominatim request.
-        const nominatimAbort = new AbortController();
-        try {
-          const details = await resolveLocationDetails(latitude, longitude, nominatimAbort.signal);
-          if (!abortController.signal.aborted) {
-            setUserLocationDetails(details);
-            setIsDetecting(false);
+    const ipPromise = (async () => {
+      try {
+        const res = await fetch('https://ipapi.co/json/', {
+          signal: abortController.signal,
+        });
+        if (!res.ok) return null;
+        const ip = await res.json();
+        const area = ip.city || ip.region || '';
+        const country = ip.country_name || '';
+        if (!area || !country) return null;
+        return {
+          area,
+          country,
+          label: `${area}, ${country}`,
+          latitude: ip.latitude ?? null,
+          longitude: ip.longitude ?? null,
+        };
+      } catch {
+        return null;
+      }
+    })();
+
+    const gpsPromise = new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          const nominatimAbort = new AbortController();
+          try {
+            const details = await resolveLocationDetails(latitude, longitude, nominatimAbort.signal);
+            resolve(details);
+          } catch {
+            resolve(null);
           }
-        } catch {
-          if (!abortController.signal.aborted) {
-            setUserLocationDetails(fallbackUserLocation());
-            setIsDetecting(false);
-          }
+        },
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+      );
+    });
+
+    let firstResult = null;
+    let hasResolved = false;
+    const acceptResult = (result) => {
+      if (hasResolved || !result || abortController.signal.aborted) return;
+      hasResolved = true;
+      firstResult = result;
+      setUserLocationDetails(result);
+      setLocationError('');
+      setIsDetecting(false);
+    };
+
+    ipPromise.then(acceptResult).catch(() => {});
+    gpsPromise.then(acceptResult).catch(() => {});
+
+    gpsPromise
+      .then((result) => {
+        if (!result || abortController.signal.aborted) return;
+        if (
+          !firstResult ||
+          result.label !== firstResult.label ||
+          result.latitude !== firstResult.latitude ||
+          result.longitude !== firstResult.longitude
+        ) {
+          setUserLocationDetails(result);
+          setLocationError('');
         }
-      },
-      async () => {
-        // GPS timed out or was denied — try IP-based location as fallback.
-        if (abortController.signal.aborted) return;
-        try {
-          const res = await fetch('https://ipapi.co/json/', {
-            signal: abortController.signal,
-          });
-          if (res.ok) {
-            const ip = await res.json();
-            const area = ip.city || ip.region || '';
-            const country = ip.country_name || '';
-            if (area && country) {
-              setUserLocationDetails({
-                area,
-                country,
-                label: `${area}, ${country}`,
-                latitude: ip.latitude ?? null,
-                longitude: ip.longitude ?? null,
-              });
-              setIsDetecting(false);
-              return;
-            }
-          }
-        } catch {
-          // IP fallback also failed — fall through to hardcoded sentinel below.
-          if (abortController.signal.aborted) return;
-        }
-        setUserLocationDetails(fallbackUserLocation());
-        setLocationError(
-          'Could not detect location automatically. ' +
-          'Search for your city using the search box.'
-        );
         setIsDetecting(false);
-      },
-      { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 }
-    );
+      })
+      .catch(() => {});
+
+    Promise.allSettled([ipPromise, gpsPromise]).then(() => {
+      if (hasResolved || abortController.signal.aborted) return;
+      setUserLocationDetails(fallbackUserLocation());
+      setLocationError(
+        'Could not detect location automatically. ' +
+        'Search for your city using the search box.'
+      );
+      setIsDetecting(false);
+    });
 
     return () => abortController.abort();
   }, [isUsingCurrentLocation]);
@@ -247,12 +265,47 @@ export function useLocationNews() {
 
       // Location resolved — clear the pending flag and proceed with the fetch.
       setIsLocationPending(false);
-      setIsNewsLoading(true);
-      setNewsArticles([]);
-      setNewsError('');
-      setPage(0);         // reset to first page on any location change
-      setHasMore(false);
-      setTotalCount(0);
+      setPage(0); // reset to first page on any location change
+
+      const cacheKey = `newshub.articles.cache.${[
+        locationRequest.location,
+        locationRequest.country,
+        locationRequest.area,
+        0,
+      ].join('|')}`;
+      const cacheTtlMs = 300000;
+      let cachedPayload = null;
+
+      try {
+        const raw = window.localStorage.getItem(cacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const isFresh = typeof parsed?.cachedAt === 'number' && (Date.now() - parsed.cachedAt) < cacheTtlMs;
+          if (isFresh && Array.isArray(parsed?.items)) {
+            cachedPayload = {
+              items: parsed.items.slice(0, 8),
+              hasMore: Boolean(parsed.hasMore),
+              totalCount: Number.isFinite(parsed.totalCount) ? parsed.totalCount : 0,
+            };
+          }
+        }
+      } catch {
+        cachedPayload = null;
+      }
+
+      if (cachedPayload) {
+        setNewsArticles(cachedPayload.items);
+        setHasMore(cachedPayload.hasMore);
+        setTotalCount(cachedPayload.totalCount);
+        setNewsError(cachedPayload.items.length === 0 ? 'No current-year news found for this location yet.' : '');
+        setIsNewsLoading(false);
+      } else {
+        setNewsArticles([]);
+        setHasMore(false);
+        setTotalCount(0);
+        setNewsError('');
+        setIsNewsLoading(true);
+      }
       try {
         const result = await fetchNewsByLocation({
           ...locationRequest,
@@ -265,9 +318,22 @@ export function useLocationNews() {
           setHasMore(result.hasMore);
           setTotalCount(result.totalCount);
           setNewsError(result.items.length === 0 ? 'No current-year news found for this location yet.' : '');
+          try {
+            window.localStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                cachedAt: Date.now(),
+                items: result.items.slice(0, 8),
+                hasMore: result.hasMore,
+                totalCount: result.totalCount,
+              })
+            );
+          } catch {
+            // Ignore cache write failures (private mode, quota, etc.).
+          }
         }
       } catch (error) {
-        if (error?.name !== 'AbortError' && !abortController.signal.aborted) {
+        if (error?.name !== 'AbortError' && !abortController.signal.aborted && !cachedPayload) {
           setNewsArticles([]);
           setNewsError('Unable to fetch location-based news right now.');
         }
