@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ELECTIONS } from '../../elections/data/mockData';
 import { supabase } from '../../shared/services/supabaseClient';
+import { getCandidatesByElectionId, getElections } from '../../elections/services/electionsApi';
 import HomeFooter from '../components/HomeFooter';
 import HomeHeader from '../components/HomeHeader';
 import HomeHeroSection from '../components/HomeHeroSection';
@@ -70,11 +70,47 @@ export default function Home() {
   // Search state owned here so both desktop and mobile inputs stay in sync.
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [activeElections, setActiveElections] = useState([]);
 
   // Close the search dropdown whenever the user navigates to another route.
   useEffect(() => {
     setIsSearchOpen(false);
   }, [location.pathname]);
+
+  // Real active elections from Supabase — replaces ELECTIONS mock data from mockData.js.
+  useEffect(() => {
+    const loadActiveElections = async () => {
+      try {
+        const allElections = await getElections();
+        if (!allElections || allElections.length === 0) {
+          setActiveElections([]);
+          return;
+        }
+
+        const active = allElections.filter((election) => election?.status === 'Active');
+        if (active.length === 0) {
+          setActiveElections([]);
+          return;
+        }
+
+        const enriched = await Promise.all(
+          active.map(async (election) => {
+            const candidates = await getCandidatesByElectionId(election.id);
+            return {
+              ...election,
+              candidatesCount: candidates.length,
+            };
+          })
+        );
+
+        setActiveElections(enriched);
+      } catch {
+        setActiveElections([]);
+      }
+    };
+
+    loadActiveElections();
+  }, []);
 
   const taggedArticles = useMemo(() => tagNewsArticlesByCategory(newsArticles), [newsArticles]);
   const filteredArticles = useMemo(
@@ -83,7 +119,6 @@ export default function Home() {
   );
   const featuredArticle = filteredArticles[0];
   const otherArticles = useMemo(() => filteredArticles.slice(1), [filteredArticles]);
-  const activeElections = ELECTIONS.slice(0, 2);
   const topCategories = NEWS_CATEGORY_TABS;
   const showInitialNewsLoading = isNewsLoading && newsArticles.length === 0;
 
