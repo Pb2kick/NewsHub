@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { UserX } from 'lucide-react';
+import { Eye, UserX } from 'lucide-react'; // NEW
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { useAdminResource } from '../hooks/useAdminResource';
 import { banUser, listUsers } from '../services/adminApi';
+import AdminUserDetailModal from './AdminUserDetailModal'; // NEW
 
 /**
  * Renders admin user management table.
@@ -16,6 +17,7 @@ export default function AdminUsers() {
   const [message, setMessage] = useState('');
   const [pendingBan, setPendingBan] = useState(null);
   const [isBanning, setIsBanning] = useState(false);
+  const [viewingUser, setViewingUser] = useState(null); // NEW
 
   const loadUsers = useCallback(() => listUsers({ search }), [search]);
   const { data, loading, error, reload } = useAdminResource(loadUsers, [search]);
@@ -88,6 +90,17 @@ export default function AdminUsers() {
                     <td className="px-4 py-3"><AdminStatusBadge value={user.role} /></td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(user.created_at)}</td>
                     <td className="px-4 py-3 text-right">
+                      {(
+                        // NEW
+                        <button
+                          type="button"
+                          onClick={() => setViewingUser(user)}
+                          className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 mr-3"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View
+                        </button>
+                      )}
                       {canBan ? (
                         <button
                           type="button"
@@ -119,6 +132,13 @@ export default function AdminUsers() {
         onCancel={() => setPendingBan(null)}
         isConfirming={isBanning}
       />
+      {viewingUser ? (
+        // NEW
+        <AdminUserDetailModal
+          user={viewingUser}
+          onClose={() => setViewingUser(null)}
+        />
+      ) : null}
     </div>
   );
 }

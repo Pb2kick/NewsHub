@@ -82,7 +82,7 @@ async function getCount(tableName, configure) {
  */
 export async function getDashboardStats() {
   const [users, elections, articles, pendingVerifications] = await Promise.all([
-    getCount('users'),
+    getCount('users', (query) => query.neq('role', 'ADMIN')),
     getCount('elections'),
     getCount('news'),
     getCount('verifications', (query) => query.eq('status', 'PENDING')),
@@ -313,6 +313,93 @@ export async function listUsers({ search } = {}) {
     return (data || []).filter((item) => {
       const role = String(item?.role || '').trim().toUpperCase();
       return role !== 'ADMIN';
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetches a single user profile by numeric id.
+ * @param {string | number} userId
+ * @returns {Promise<{id: number, email: string, full_name: string, role: string, created_at: string, profile_photo_url: string, auth_user_id: string} | null>}
+ */
+export async function getUserById(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id,email,full_name,role,created_at,profile_photo_url,auth_user_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error) return null;
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches the latest comment history for a user and enriches it with article metadata.
+ * @param {string | number} userId
+ * @returns {Promise<Array<{id: string, article_id: string, content: string, created_at: string, parent_id: string | null, article_title: string, article_source: string, article_source_url: string}>>}
+ */
+export async function getUserCommentHistory(userId) {
+  try {
+    const { data: comments, error: commentError } = await supabase
+      .from('article_comments')
+      .select('id,article_id,content,created_at,parent_id')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (commentError) return [];
+    if (!comments || comments.length === 0) return [];
+
+    const uniqueArticleIds = [...new Set(comments.map((comment) => comment.article_id).filter(Boolean))];
+    if (uniqueArticleIds.length === 0) {
+      return comments.map((comment) => ({
+        ...comment,
+        article_title: 'Article removed',
+        article_source: '',
+        article_source_url: '',
+      }));
+    }
+
+    const { data: articles, error: articleError } = await supabase
+      .from('news')
+      .select('id,title,source,source_url')
+      .in('id', uniqueArticleIds);
+
+    if (articleError) return [];
+
+    const articleMap = new Map(
+      (articles || []).map((article) => [
+        article.id,
+        {
+          title: article.title || 'Article removed',
+          source: article.source || '',
+          sourceUrl: article.source_url || '',
+        },
+      ])
+    );
+
+    return comments.map((comment) => {
+      const article = articleMap.get(comment.article_id) || {
+        title: 'Article removed',
+        source: '',
+        sourceUrl: '',
+      };
+      return {
+        id: comment.id,
+        article_id: comment.article_id,
+        content: comment.content,
+        created_at: comment.created_at,
+        parent_id: comment.parent_id,
+        article_title: article.title,
+        article_source: article.source,
+        article_source_url: article.sourceUrl,
+      };
     });
   } catch {
     return [];
