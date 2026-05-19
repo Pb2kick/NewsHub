@@ -292,6 +292,7 @@ export async function listUsers({ search } = {}) {
     let query = supabase
       .from('users')
       .select('id,email,full_name,role,created_at')
+      .neq('role', 'ADMIN')
       .order('created_at', { ascending: false });
 
     const term = String(search || '').trim();
