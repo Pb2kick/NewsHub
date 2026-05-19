@@ -321,7 +321,7 @@ export async function listUsers({ search } = {}) {
 
 /**
  * Fetches a single user profile by numeric id.
- * @param {string | number} userId
+ * @param {string} authUserId
  * @returns {Promise<{id: number, email: string, full_name: string, role: string, created_at: string, profile_photo_url: string, auth_user_id: string} | null>}
  */
 export async function getUserById(userId) {
@@ -344,12 +344,16 @@ export async function getUserById(userId) {
  * @param {string | number} userId
  * @returns {Promise<Array<{id: string, article_id: string, content: string, created_at: string, parent_id: string | null, article_title: string, article_source: string, article_source_url: string}>>}
  */
-export async function getUserCommentHistory(userId) {
+export async function getUserCommentHistory(authUserId) {
   try {
+    if (!authUserId || typeof authUserId !== 'string') {
+      return [];
+    }
+
     const { data: comments, error: commentError } = await supabase
       .from('article_comments')
       .select('id,article_id,content,created_at,parent_id')
-      .eq('user_id', userId)
+      .eq('user_id', authUserId)
       .order('created_at', { ascending: false })
       .limit(50);
 

@@ -24,10 +24,9 @@ export default function AdminUserDetailModal({ user, onClose }) {
   }, []);
 
   const loadDetails = useCallback(async () => {
-    const [profile, comments] = await Promise.all([
-      getUserById(user.id),
-      getUserCommentHistory(user.id),
-    ]);
+    const profile = await getUserById(user.id);
+    const authUuid = profile?.auth_user_id || null;
+    const comments = await getUserCommentHistory(authUuid);
     return { profile, comments };
   }, [user.id]);
 
