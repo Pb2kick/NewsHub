@@ -291,9 +291,8 @@ export async function listUsers({ search } = {}) {
   try {
     let query = supabase
       .from('users')
-      .select('id,email,full_name,role,created_at,is_deleted')
-      .order('created_at', { ascending: false })
-      .or('is_deleted.is.null,is_deleted.eq.false');
+      .select('id,email,full_name,role,created_at')
+      .order('created_at', { ascending: false });
 
     const term = String(search || '').trim();
     if (term) {
