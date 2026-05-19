@@ -255,9 +255,8 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("year") int year,
             Pageable pageable);
 
-    /** Count for local/area scope — region only.
-     * BUG 2+3 FIX: renamed from countNationalAndRegion; consistent with findLocalNewsByYear.
-     * countForScope now also uses this method so the DB-first gate and hasMore are in sync. */
+        /** Count for local/area scope — region only.
+         * BUG 2+3 FIX: renamed from countNationalAndRegion; consistent with findLocalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)
@@ -305,10 +304,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("region") String region,
             @Param("year") int year);
 
-    /** Count for local scope (region only) — kept for backward compatibility.
-     * @deprecated Use {@link #countLocalNews} instead.
-     */
-    @Deprecated
+        /** Count for local scope (region only). */
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)

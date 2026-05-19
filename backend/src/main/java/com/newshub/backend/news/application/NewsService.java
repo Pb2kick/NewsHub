@@ -553,9 +553,8 @@ public class NewsService {
             // instead of NOT IN, consistent with servePagedFromDb's findInternationalNewsByYear.
             return newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
         }
-        // BUG 3 FIX: use countLocalNews (region-only) instead of countByRegion — now identical
-        // to the count used in servePagedFromDb, eliminating the gate/pagination mismatch.
-        return newsArticleRepository.countLocalNews(requestedLocation, currentYear);
+        // Local scope should only count region-matched rows (no national bleed-through).
+        return newsArticleRepository.countByRegion(requestedLocation, currentYear);
     }
 
     /**
