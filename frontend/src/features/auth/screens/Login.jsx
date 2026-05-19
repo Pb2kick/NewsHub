@@ -134,22 +134,47 @@ export default function Login() {
       setLockUntil(null);
 
       const authUser = signInData.session.user;
-      let redirectPath = '/home';
+      let resolvedRole = '';
 
-      if (authUser?.email) {
+      if (authUser?.id) {
         const { data: userProfile, error: roleError } = await supabase
+          .from('users')
+          .select('role')
+          .eq('auth_user_id', authUser.id)
+          .maybeSingle();
+
+        if (!roleError && userProfile?.role) {
+          resolvedRole = userProfile.role;
+        }
+      }
+
+      if (!resolvedRole) {
+        // app_metadata.role can be set once per admin user via the Supabase dashboard or admin API — see migration notes.
+        const metaRole = authUser?.app_metadata?.role || authUser?.user_metadata?.role;
+        if (metaRole) {
+          resolvedRole = metaRole;
+        }
+      }
+
+      if (!resolvedRole && authUser?.email) {
+        const { data: userProfileByEmail, error: emailError } = await supabase
           .from('users')
           .select('role')
           .eq('email', authUser.email)
           .maybeSingle();
 
-        if (!roleError) {
-          const normalizedRole = String(userProfile?.role || '').trim().toUpperCase();
-          if (normalizedRole === 'ADMIN') {
-            redirectPath = '/admin';
-          }
+        if (!emailError && userProfileByEmail?.role) {
+          resolvedRole = userProfileByEmail.role;
+        } else {
+          console.warn('Role lookup failed after fallback.', {
+            userId: authUser?.id || 'unknown',
+            email: authUser?.email || 'unknown',
+          });
         }
       }
+
+      const normalizedRole = String(resolvedRole || '').trim().toUpperCase();
+      const redirectPath = normalizedRole === 'ADMIN' ? '/admin' : '/home';
 
       if (redirectPath !== '/admin') {
         clearAdminViewMode();

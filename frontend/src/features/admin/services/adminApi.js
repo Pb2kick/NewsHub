@@ -38,14 +38,14 @@ export async function getCurrentAdminProfile() {
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user?.email) {
+  if (userError || !user?.id) {
     return null;
   }
 
   const { data, error } = await supabase
     .from('users')
     .select('id,email,role')
-    .eq('email', user.email)
+    .eq('auth_user_id', user.id)
     .maybeSingle();
 
   if (error) {
@@ -292,7 +292,6 @@ export async function listUsers({ search } = {}) {
     let query = supabase
       .from('users')
       .select('id,email,full_name,role,created_at')
-      .neq('role', 'ADMIN')
       .order('created_at', { ascending: false });
 
     const term = String(search || '').trim();
@@ -303,7 +302,11 @@ export async function listUsers({ search } = {}) {
 
     const { data, error } = await query;
     if (error) return [];
-    return data || [];
+
+    return (data || []).filter((item) => {
+      const role = String(item?.role || '').trim().toUpperCase();
+      return role !== 'ADMIN';
+    });
   } catch {
     return [];
   }

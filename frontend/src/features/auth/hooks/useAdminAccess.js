@@ -48,11 +48,18 @@ export function useAdminAccess() {
         const { data: userProfile, error: userError } = await supabase
           .from('users')
           .select('role')
-          .eq('email', authUser.email)
+          .eq('auth_user_id', authUser.id)
           .maybeSingle();
 
         if (!userError && userProfile?.role) {
           profileRole = userProfile.role;
+        }
+
+        if (!profileRole) {
+          const metaRole = authUser?.app_metadata?.role || authUser?.user_metadata?.role;
+          if (metaRole) {
+            profileRole = metaRole;
+          }
         }
 
         const isAdmin = String(profileRole || '').trim().toUpperCase() === ADMIN_ROLE;
