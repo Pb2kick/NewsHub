@@ -45,6 +45,7 @@ export async function getCurrentAdminProfile() {
   const { data, error } = await supabase
     .from('users')
     .select('id,email,role')
+    // public.users.auth_user_id stores the auth UUID (separate from numeric id).
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
@@ -61,6 +62,9 @@ export async function getCurrentAdminProfile() {
  * @returns {Promise<number>}
  */
 async function getCount(tableName, configure) {
+  // Works correctly once the Supabase RLS migration is applied and this admin
+  // user has app_metadata.role = 'ADMIN' in their JWT.
+  // See: db/migrations/fix_users_rls_admin_access.sql
   let query = supabase.from(tableName).select('id', { count: 'exact', head: true });
   if (configure) {
     query = configure(query);
@@ -288,6 +292,9 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
  * @returns {Promise<Array<any>>}
  */
 export async function listUsers({ search } = {}) {
+  // Works correctly once the Supabase RLS migration is applied and this admin
+  // user has app_metadata.role = 'ADMIN' in their JWT.
+  // See: db/migrations/fix_users_rls_admin_access.sql
   try {
     let query = supabase
       .from('users')
@@ -318,6 +325,9 @@ export async function listUsers({ search } = {}) {
  * @returns {Promise<{ success: boolean, message?: string }>}
  */
 export async function banUser(userId) {
+  // Works correctly once the Supabase RLS migration is applied and this admin
+  // user has app_metadata.role = 'ADMIN' in their JWT.
+  // See: db/migrations/fix_users_rls_admin_access.sql
   // 'BANNED' role blocks login via RLS policies on the auth layer. Requires a matching RLS policy — see migration block.
   try {
     const { error } = await supabase
