@@ -340,6 +340,32 @@ export async function getUserById(userId) {
 }
 
 /**
+ * Fetches the latest verification status for the given auth user id.
+ * @param {string} authUserId
+ * @returns {Promise<{ id: number, status: string, submitted_at: string, reviewed_at: string | null } | null>}
+ */
+export async function getUserVerificationStatus(authUserId) {
+  try {
+    if (!authUserId || typeof authUserId !== 'string') {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('verifications')
+      .select('id,status,submitted_at,reviewed_at')
+      .eq('user_id', authUserId)
+      .order('submitted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return null;
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetches the latest comment history for a user and enriches it with article metadata.
  * @param {string | number} userId
  * @returns {Promise<Array<{id: string, article_id: string, content: string, created_at: string, parent_id: string | null, article_title: string, article_source: string, article_source_url: string}>>}

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, MessageSquare, Clock } from 'lucide-react';
+import { X, MessageSquare, Clock, ShieldCheck, ShieldX, ShieldOff } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminStatusBadge from '../components/AdminStatusBadge';
 import { useAdminResource } from '../hooks/useAdminResource';
-import { getUserById, getUserCommentHistory } from '../services/adminApi';
+import { getUserById, getUserCommentHistory, getUserVerificationStatus } from '../services/adminApi';
 
 /**
  * Slide-over modal displaying user profile details and comment history.
@@ -26,13 +26,21 @@ export default function AdminUserDetailModal({ user, onClose }) {
   const loadDetails = useCallback(async () => {
     const profile = await getUserById(user.id);
     const authUuid = profile?.auth_user_id || null;
-    const comments = await getUserCommentHistory(authUuid);
-    return { profile, comments };
+    const [comments, verification] = await Promise.all([
+      getUserCommentHistory(authUuid),
+      getUserVerificationStatus(authUuid),
+    ]);
+    return { profile, comments, verification };
   }, [user.id]);
 
   const { data, loading, error } = useAdminResource(loadDetails, [user.id]);
   const profile = data?.profile || user;
   const comments = data?.comments || [];
+  const verification = data?.verification || null;
+  const authUuid = profile?.auth_user_id || null;
+  const verificationStatus = verification?.status
+    ? String(verification.status).toUpperCase()
+    : null;
 
   const displayName = profile?.full_name || user?.full_name || 'User';
   const displayEmail = profile?.email || user?.email || '';
@@ -119,6 +127,39 @@ export default function AdminUserDetailModal({ user, onClose }) {
                     <AdminStatusBadge value={displayRole} />
                   </div>
                 </div>
+                {authUuid ? (
+                  <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Verification Status</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      {verificationStatus === 'APPROVED' ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-50 text-green-700 text-xs font-medium px-2 py-0.5 border border-green-200">
+                          <ShieldCheck className="w-3 h-3" />
+                          Verified
+                        </span>
+                      ) : verificationStatus === 'PENDING' ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-700 text-xs font-medium px-2 py-0.5 border border-amber-200">
+                          <Clock className="w-3 h-3" />
+                          Pending Review
+                        </span>
+                      ) : verificationStatus === 'REJECTED' ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 text-red-700 text-xs font-medium px-2 py-0.5 border border-red-200">
+                          <ShieldX className="w-3 h-3" />
+                          Rejected
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-500 text-xs font-medium px-2 py-0.5">
+                          <ShieldOff className="w-3 h-3" />
+                          Not Verified
+                        </span>
+                      )}
+                      {verification?.submitted_at ? (
+                        <span className="text-xs text-slate-400">
+                          Submitted {formatDate(verification.submitted_at)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-xs text-slate-400 uppercase tracking-wide">Member Since</p>
                   <p className="text-sm text-slate-900 font-medium">{formatDate(profile?.created_at)}</p>
@@ -143,17 +184,19 @@ export default function AdminUserDetailModal({ user, onClose }) {
                 <div>
                   {comments.map((comment) => {
                     const dateText = formatDate(comment.created_at);
-                    const hasLink = Boolean(comment.article_source_url);
+                    const internalArticleUrl = comment.article_id
+                      ? `/news/${comment.article_id}`
+                      : null;
                     const title = comment.article_title || 'Article removed';
                     return (
                       <article key={comment.id} className="mx-6 mb-3 bg-white border border-slate-200 rounded-xl p-4">
                         <div className="text-sm font-medium text-blue-700">
-                          {hasLink ? (
-                            <a href={comment.article_source_url} target="_blank" rel="noreferrer">
+                          {internalArticleUrl ? (
+                            <a href={internalArticleUrl} target="_blank" rel="noreferrer" className="hover:underline">
                               {title}
                             </a>
                           ) : (
-                            title
+                            <span className="text-slate-400">{title}</span>
                           )}
                           {comment.article_source ? (
                             <span className="text-xs text-slate-400 ml-1">{comment.article_source}</span>
