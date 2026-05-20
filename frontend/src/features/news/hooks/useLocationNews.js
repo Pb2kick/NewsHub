@@ -153,20 +153,22 @@ export function useLocationNews() {
      */
     const ipPromise = (async () => {
       try {
-        const res = await fetch('https://ipapi.co/json/', {
+        // CHANGED: ipapi.co free plan CORS-blocks production domains. // NEW
+        // freeipapi.com supports CORS from any origin — no API key required. // NEW
+        const res = await fetch('https://freeipapi.com/api/json', { // CHANGED
           signal: abortController.signal,
         });
         if (!res.ok) return null;
         const ip = await res.json();
-        const area = ip.city || ip.region || '';
-        const country = ip.country_name || '';
+        const area = ip.cityName || ip.regionName || ''; // CHANGED
+        const country = ip.countryName || ''; // CHANGED
         if (!area || !country) return null;
         return {
           area,
           country,
           label: `${area}, ${country}`,
-          latitude: ip.latitude ?? null,
-          longitude: ip.longitude ?? null,
+          latitude: typeof ip.latitude === 'number' ? ip.latitude : null, // CHANGED
+          longitude: typeof ip.longitude === 'number' ? ip.longitude : null, // CHANGED
         };
       } catch {
         return null;
