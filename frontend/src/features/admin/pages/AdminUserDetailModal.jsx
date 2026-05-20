@@ -185,7 +185,7 @@ export default function AdminUserDetailModal({ user, onClose }) {
                   {comments.map((comment) => {
                     const dateText = formatDate(comment.created_at);
                     const internalArticleUrl = comment.article_id
-                      ? `/news/${comment.article_id}`
+                      ? `/news/${comment.article_id}?adminView=1`
                       : null;
                     const title = comment.article_title || 'Article removed';
                     return (
