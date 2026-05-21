@@ -4,6 +4,7 @@ import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
+import org.springframework.beans.factory.annotation.Value; // added missing @Value import for constructor injection
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -36,7 +37,7 @@ public class NewsService {
      * @param externalNewsService service for live external feeds
      */
     public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService,
-                       org.springframework.beans.factory.annotation.Value("${news.external.stale-hours:6}") long staleHours) {
+                       @Value("${news.external.stale-hours:6}") long staleHours) { // fixed: use @Value annotation, not FQCN expression
         this.newsArticleRepository = newsArticleRepository;
         this.externalNewsService = externalNewsService;
         this.staleHours = staleHours; // store configured staleness threshold
