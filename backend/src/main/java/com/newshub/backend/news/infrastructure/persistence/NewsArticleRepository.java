@@ -267,6 +267,25 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             @Param("year") int year);
 
     /**
+     * Returns the most recent publishedAt timestamp for the given scope/year.
+     * Used to determine feed staleness so the service can re-fetch live news.
+     */
+    @Query("""
+            select max(n.publishedAt) from NewsArticle n
+            where (
+                (:location = 'All')
+                or (:location = 'National' and lower(n.country) = lower(:country) and (n.region is null or n.region = ''))
+                or (:location = 'International' and lower(n.country) = 'international' and lower(n.region) = lower(:country))
+                or (:location = 'Local' and lower(n.region) = lower(:region))
+            )
+            and year(n.publishedAt) = :year
+            """)
+    java.time.LocalDateTime findMostRecentPublishedAtForScope(@Param("location") String location,
+                                                               @Param("country") String country,
+                                                               @Param("region") String region,
+                                                               @Param("year") int year);
+
+    /**
      * @deprecated Superseded by {@link #findLocalNewsByYear} (region-only).
      * Retained for any legacy call sites; not called by NewsService.
      */

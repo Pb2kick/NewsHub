@@ -462,6 +462,27 @@ export async function banUser(userId) {
 }
 
 /**
+ * Restores a previously banned user by setting role back to 'USER'.
+ * @param {string} userId
+ * @returns {Promise<{ success: boolean, message?: string }>}
+ */
+export async function unbanUser(userId) {
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({ role: 'USER' })
+      .eq('id', userId);
+
+    if (error) {
+      return { success: false, message: toErrorMessage(error, 'Unable to unban user.') };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: error?.message || 'Unable to unban user.' };
+  }
+}
+
+/**
  * Lists elections sorted by start time.
  * @returns {Promise<Array<any>>}
  */

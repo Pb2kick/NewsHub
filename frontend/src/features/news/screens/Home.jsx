@@ -65,7 +65,7 @@ export default function Home() {
     profileInitials,
   } = useProfileMenu();
   const { isAdminViewMode } = useAdminViewMode();
-  const { notifications, unreadCount, markOneRead, markAllRead } = useNotificationsContext();
+  const { notifications, unreadCount, markOneRead, markAllRead, deleteNotification } = useNotificationsContext(); // CHANGED: extracted deleteNotification from context
 
   // Search state owned here so both desktop and mobile inputs stay in sync.
   const [searchQuery, setSearchQuery] = useState('');
@@ -151,6 +151,7 @@ export default function Home() {
         unreadCount={unreadCount}
         markOneRead={markOneRead}
         markAllRead={markAllRead}
+        deleteNotification={deleteNotification} // CHANGED: forward deleteNotification to header
       />
 
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">

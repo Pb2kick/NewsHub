@@ -26,6 +26,8 @@ public class NewsService {
 
     private final NewsArticleRepository newsArticleRepository;
     private final ExternalNewsService externalNewsService;
+    // Injected TTL (hours) controlling when DB data is considered stale and triggers a live fetch.
+    private final long staleHours;
 
     /**
      * Creates the news service with persistence and live feed dependencies.
@@ -33,9 +35,11 @@ public class NewsService {
      * @param newsArticleRepository repository for local news records
      * @param externalNewsService service for live external feeds
      */
-    public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService) {
+    public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService,
+                       org.springframework.beans.factory.annotation.Value("${news.external.stale-hours:6}") long staleHours) {
         this.newsArticleRepository = newsArticleRepository;
         this.externalNewsService = externalNewsService;
+        this.staleHours = staleHours; // store configured staleness threshold
     }
 
     /**
@@ -70,7 +74,9 @@ public class NewsService {
 
         // DB-first: only call live fetch when the DB has no current-year articles for this scope.
         long existingCount = countForScope(requestedLocation, requestedCountry, currentYear);
-        if (existingCount == 0) {
+        // Determine whether the DB is empty for this scope OR the most recent article is older than staleHours.
+        boolean needsRefresh = existingCount == 0 || isScopeStale(requestedLocation, requestedCountry, currentYear);
+        if (needsRefresh) {
             List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
             if (!liveNews.isEmpty()) {
                 persistExternalNews(liveNews, requestedLocation, requestedCountry);
@@ -555,6 +561,22 @@ public class NewsService {
         }
         // Local scope should only count region-matched rows (no national bleed-through).
         return newsArticleRepository.countByRegion(requestedLocation, currentYear);
+    }
+
+    // Returns true when the latest persisted article for the scope is older than the configured staleHours.
+    private boolean isScopeStale(String requestedLocation, String requestedCountry, int currentYear) {
+        try {
+            java.time.LocalDateTime latest = newsArticleRepository.findMostRecentPublishedAtForScope(
+                    requestedLocation, requestedCountry, requestedLocation, currentYear);
+            if (latest == null) {
+                return true; // no articles — consider stale so fetch occurs
+            }
+            java.time.Duration age = java.time.Duration.between(latest, java.time.LocalDateTime.now());
+            return age.toHours() >= staleHours;
+        } catch (Exception e) {
+            // On error, assume not stale to avoid hammering external feeds; serve DB data instead.
+            return false;
+        }
     }
 
     /**

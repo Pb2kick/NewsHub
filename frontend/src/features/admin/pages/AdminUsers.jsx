@@ -1,11 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { Eye, UserX } from 'lucide-react'; // NEW
+import { Eye, UserX, UserCheck } from 'lucide-react'; // CHANGED: added UserCheck for unban UI
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import AdminStatusBadge from '../components/AdminStatusBadge';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { useAdminResource } from '../hooks/useAdminResource';
-import { banUser, listUsers } from '../services/adminApi';
+import { banUser, listUsers, unbanUser } from '../services/adminApi'; // CHANGED: imported unbanUser
 import AdminUserDetailModal from './AdminUserDetailModal'; // NEW
 
 /**
@@ -17,6 +17,8 @@ export default function AdminUsers() {
   const [message, setMessage] = useState('');
   const [pendingBan, setPendingBan] = useState(null);
   const [isBanning, setIsBanning] = useState(false);
+  const [pendingUnban, setPendingUnban] = useState(null); // NEW: track user pending unban
+  const [isUnbanning, setIsUnbanning] = useState(false); // NEW: pending unban action flag
   const [viewingUser, setViewingUser] = useState(null); // NEW
 
   const loadUsers = useCallback(() => listUsers({ search }), [search]);
@@ -38,6 +40,20 @@ export default function AdminUsers() {
     }
     setPendingBan(null);
     setIsBanning(false);
+  };
+
+  const handleConfirmUnban = async () => {
+    if (!pendingUnban) return;
+    setIsUnbanning(true);
+    const result = await unbanUser(pendingUnban.id);
+    if (result?.success) {
+      setMessage('User unbanned successfully.');
+      await reload();
+    } else {
+      setMessage(result?.message || 'Unable to unban user.');
+    }
+    setPendingUnban(null);
+    setIsUnbanning(false);
   };
 
   const formatDate = (value) => {
@@ -90,29 +106,36 @@ export default function AdminUsers() {
                     <td className="px-4 py-3"><AdminStatusBadge value={user.role} /></td>
                     <td className="px-4 py-3 text-slate-600">{formatDate(user.created_at)}</td>
                     <td className="px-4 py-3 text-right">
-                      {(
-                        // NEW
-                        <button
-                          type="button"
-                          onClick={() => setViewingUser(user)}
-                          className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 mr-3"
-                        >
-                          <Eye className="w-4 h-4" />
-                          View
-                        </button>
-                      )}
-                      {canBan ? (
-                        <button
-                          type="button"
-                          onClick={() => setPendingBan(user)}
-                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"
-                        >
-                          <UserX className="w-4 h-4" />
-                          Ban
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">-</span>
-                      )}
+                            {
+                              <button
+                                type="button"
+                                onClick={() => setViewingUser(user)}
+                                className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 mr-3"
+                              >
+                                <Eye className="w-4 h-4" />
+                                View
+                              </button>
+                            }
+                            {canBan ? (
+                              <button
+                                type="button"
+                                onClick={() => setPendingBan(user)}
+                                className="inline-flex items-center gap-1 text-red-600 hover:text-red-700"
+                              >
+                                <UserX className="w-4 h-4" />
+                                Ban
+                              </button>
+                            ) : null}
+                            {String(user.role || '').toUpperCase() === 'BANNED' ? (
+                              <button
+                                type="button"
+                                onClick={() => setPendingUnban(user)}
+                                className="inline-flex items-center gap-1 text-green-600 hover:text-green-700 ml-3"
+                              >
+                                <UserCheck className="w-4 h-4" />
+                                Unban
+                              </button>
+                            ) : null}
                     </td>
                   </tr>
                 );
@@ -131,6 +154,16 @@ export default function AdminUsers() {
         onConfirm={handleConfirmBan}
         onCancel={() => setPendingBan(null)}
         isConfirming={isBanning}
+      />
+      <ConfirmationModal
+        isOpen={pendingUnban !== null}
+        title="Unban User"
+        message={pendingUnban ? `Are you sure you want to unban ${pendingUnban.full_name || 'this user'} (${pendingUnban.email || 'no email'})? This will restore their access.` : ''}
+        confirmLabel="Yes, Unban User"
+        confirmClassName="bg-green-600 text-white hover:bg-green-700"
+        onConfirm={handleConfirmUnban}
+        onCancel={() => setPendingUnban(null)}
+        isConfirming={isUnbanning}
       />
       {viewingUser ? (
         // NEW

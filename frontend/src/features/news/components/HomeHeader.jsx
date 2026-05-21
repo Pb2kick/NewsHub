@@ -51,6 +51,7 @@ export default function HomeHeader(props) {
     unreadCount   = 0,
     markOneRead,
     markAllRead,
+    deleteNotification, // CHANGED: accept deleteNotification prop and forward
   } = props;
 
   function handleSearchChange(event) {
@@ -111,6 +112,7 @@ export default function HomeHeader(props) {
               unreadCount={unreadCount}
               markOneRead={markOneRead}
               markAllRead={markAllRead}
+              deleteNotification={deleteNotification} // CHANGED: pass through deleteNotification
             />
             <div ref={setProfileMenuElement} className="relative border-l border-slate-200 pl-2 sm:pl-4">
               <button
