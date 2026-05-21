@@ -251,40 +251,7 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
     );
   }
 
-  const { data: verificationRow, error: verificationError } = await supabase
-    .from('verifications')
-    .select('user_id, full_name')
-    .eq('id', verificationId)
-    .maybeSingle();
-
-  if (!verificationError && verificationRow?.user_id) {
-    const notificationType = String(status || '').toUpperCase() === 'APPROVED'
-      ? 'VERIFICATION_APPROVED'
-      : 'VERIFICATION_REJECTED';
-
-    // Notify the user of the admin's decision so their Profile page reflects the outcome in real time via the existing
-    // useNotifications Realtime subscription.
-    try {
-      const { error: notifyError } = await supabase.from('notifications').insert({
-        recipient_user_id: verificationRow.user_id,
-        actor_user_id: null, // admin numeric id is not auth UUID; null avoids RLS type mismatch
-        actor_display_name: 'NewsHub Admin',
-        actor_photo_url: '',
-        comment_id: null,
-        article_id: null,
-        article_title: null,
-        article_snapshot: null,
-        is_read: false,
-        type: notificationType,
-      });
-      if (notifyError) {
-        // Notification insert failures should not block the verification update.
-        console.warn('Verification notification insert failed:', notifyError.message);
-      }
-    } catch {
-      // Swallow notification failures silently.
-    }
-  }
+  // Verification notifications are inserted by trg_verification_status_change (DB trigger).
 }
 
 /**

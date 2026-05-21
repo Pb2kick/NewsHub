@@ -1,3 +1,12 @@
+/**
+ * useLocationNews.js
+ *
+ * Changes:
+ * - ipPromise now calls https://ipapi.co/json/ directly instead of the Spring Boot
+ *   /api/location/detect proxy on Render. The free Render web service sleeps after
+ *   inactivity and often returns 502 on cold start; ipapi.co from the browser avoids
+ *   that hop while GPS + IP race logic is unchanged.
+ */
 import { useEffect, useMemo, useState } from 'react';
 import { fetchNewsByLocation } from '../services/newsApi';
 import {
@@ -153,14 +162,13 @@ export function useLocationNews() {
      */
     const ipPromise = (async () => {
       try {
-        const baseUrl = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
-        const res = await fetch(`${baseUrl}/api/location/detect`, {
+        const res = await fetch('https://ipapi.co/json/', {
           signal: abortController.signal,
         });
         if (!res.ok) return null;
         const ip = await res.json();
-        const area = ip.area || '';
-        const country = ip.country || '';
+        const area = (ip.city || ip.region || '').trim();
+        const country = (ip.country_name || '').trim();
         if (!area || !country) return null;
         return {
           area,
