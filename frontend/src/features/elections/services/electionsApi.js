@@ -80,19 +80,43 @@ export async function getElectionCandidateCount(electionId) {
   }
 }
 
+/**
+ * Fetches up to 3 candidate photo URLs for the sidebar preview.
+ * @param {string | number} electionId
+ * @returns {Promise<string[]>} Array of up to 3 photo_url strings (empty string when photo_url is null).
+ */
+export async function getElectionCandidatePreviews(electionId) {
+  if (!electionId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('candidates')
+      .select('photo_url,display_order')
+      .eq('election_id', electionId)
+      .order('display_order', { ascending: true })
+      .limit(3);
+
+    if (error) return [];
+    return (data || []).map((c) => c.photo_url || '');
+  } catch {
+    return [];
+  }
+}
+
 export async function getElectionsWithCounts() {
   const elections = await getElections();
   if (!elections || elections.length === 0) {
     return elections || [];
   }
 
-  const counts = await Promise.all(
-    elections.map((election) => getElectionCandidateCount(election.id))
-  );
+  const [counts, previews] = await Promise.all([
+    Promise.all(elections.map((e) => getElectionCandidateCount(e.id))),
+    Promise.all(elections.map((e) => getElectionCandidatePreviews(e.id))),
+  ]);
 
   return elections.map((election, index) => ({
     ...election,
     candidatesCount: counts[index] ?? 0,
+    candidatePreviews: previews[index] ?? [],
   }));
 }
 

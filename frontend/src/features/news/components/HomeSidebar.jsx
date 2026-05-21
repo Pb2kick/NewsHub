@@ -36,13 +36,27 @@ export default function HomeSidebar({ activeElections }) {
                   <h4 className="font-bold text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">{election.title}</h4>
                   <p className="text-sm text-slate-500 mb-3">{election.region}</p>
                   <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                    <div className="flex -space-x-2">
-                      {[1, 2, 3].map((i) => (
-                        <div key={i} className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[10px] text-slate-500 font-bold overflow-hidden">
-                          <img src={`https://i.pravatar.cc/100?img=${i + 10}`} alt="" className="w-full h-full object-cover" />
-                        </div>
-                      ))}
-                    </div>
+                    {(election.candidatePreviews || []).length > 0 && (
+                      <div className="flex -space-x-2">
+                        {(election.candidatePreviews || []).slice(0, 3).map((photoUrl, i) => (
+                          <div
+                            key={i}
+                            className="w-6 h-6 rounded-full bg-slate-200 border-2 border-white overflow-hidden flex items-center justify-center text-[10px] text-slate-500 font-bold"
+                          >
+                            {photoUrl ? (
+                              <img
+                                src={photoUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <span>{i + 1}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <span className="ml-1 text-blue-600 group-hover:underline">{election.candidatesCount} Candidates</span>
                   </div>
                 </div>

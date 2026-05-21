@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -36,10 +38,14 @@ public class LocationController {
     }
 
     @GetMapping("/detect")
-    public ResponseEntity<LocationDetectResponse> detectLocation() {
+    public ResponseEntity<LocationDetectResponse> detectLocation(HttpServletRequest httpRequest) {
         try {
+            String clientIp = extractClientIp(httpRequest);
+            String ipapiUrl = (clientIp != null && !clientIp.isBlank() && !isPrivateOrLoopback(clientIp))
+                    ? "https://ipapi.co/" + clientIp + "/json/"
+                    : IP_LOOKUP_URL;
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(IP_LOOKUP_URL))
+                    .uri(URI.create(ipapiUrl))
                     .timeout(REQUEST_TIMEOUT)
                     .header("Accept", "application/json")
                     .GET()
@@ -69,6 +75,43 @@ public class LocationController {
         } catch (Exception ignored) {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
         }
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private static boolean isPrivateOrLoopback(String ip) {
+        if (ip == null || ip.isBlank()) {
+            return true;
+        }
+        String normalized = ip.trim();
+        if ("::1".equals(normalized) || normalized.startsWith("127.")) {
+            return true;
+        }
+        if (normalized.startsWith("10.") || normalized.startsWith("192.168.")) {
+            return true;
+        }
+        if (normalized.startsWith("172.")) {
+            String[] parts = normalized.split("\\.");
+            if (parts.length >= 2) {
+                try {
+                    int secondOctet = Integer.parseInt(parts[1]);
+                    return secondOctet >= 16 && secondOctet <= 31;
+                } catch (NumberFormatException ignored) {
+                    return false;
+                }
+            }
+        }
+        return false;
     }
 
     private static String normalizeText(Object value) {
