@@ -267,7 +267,7 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
     try {
       const { error: notifyError } = await supabase.from('notifications').insert({
         recipient_user_id: verificationRow.user_id,
-        actor_user_id: adminUserId,
+        actor_user_id: null, // admin numeric id is not auth UUID; null avoids RLS type mismatch
         actor_display_name: 'NewsHub Admin',
         actor_photo_url: '',
         comment_id: null,
@@ -279,6 +279,7 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
       });
       if (notifyError) {
         // Notification insert failures should not block the verification update.
+        console.warn('Verification notification insert failed:', notifyError.message);
       }
     } catch {
       // Swallow notification failures silently.

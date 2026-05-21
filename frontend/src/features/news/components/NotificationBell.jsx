@@ -1,7 +1,7 @@
 // frontend/src/features/news/components/NotificationBell.jsx
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, X } from 'lucide-react';
+import { Bell, ShieldCheck, ShieldX, X } from 'lucide-react'; // CHANGED: added ShieldCheck, ShieldX
 
 function getInitials(name) {
   if (!name) return 'NU';
@@ -40,6 +40,71 @@ function NotifAvatar({ photoUrl, displayName }) {
         : initials}
     </div>
   );
+}
+
+// NEW: type-aware message, icon, and navigation per notification row
+function getNotificationContent(notif, markOneRead, navigate) {
+  const type = String(notif.type || '').toUpperCase();
+
+  if (type === 'VERIFICATION_APPROVED') {
+    return {
+      icon: <ShieldCheck className="w-5 h-5 text-green-600" />,
+      message: (
+        <p className="text-sm leading-snug text-slate-900">
+          <span className="font-semibold text-green-700">
+            Your identity verification was approved.
+          </span>
+          <span className="text-slate-500 block text-xs mt-0.5">
+            You can now participate in elections.
+          </span>
+        </p>
+      ),
+      onClick: async () => {
+        await markOneRead(notif.id);
+        navigate('/elections');
+      },
+    };
+  }
+
+  if (type === 'VERIFICATION_REJECTED') {
+    return {
+      icon: <ShieldX className="w-5 h-5 text-red-500" />,
+      message: (
+        <p className="text-sm leading-snug text-slate-900">
+          <span className="font-semibold text-red-700">
+            Your identity verification was not approved.
+          </span>
+          <span className="text-slate-500 block text-xs mt-0.5">
+            Please resubmit with a clearer ID photo.
+          </span>
+        </p>
+      ),
+      onClick: async () => {
+        await markOneRead(notif.id);
+        navigate('/elections?verification=rejected');
+      },
+    };
+  }
+
+  // Default: comment reply notification (existing behavior)
+  return {
+    icon: null,
+    message: (
+      <p className={`text-sm leading-snug ${!notif.is_read ? 'text-slate-900' : 'text-slate-500'}`}>
+        <span className="font-semibold">{notif.actor_display_name}</span>
+        {' replied to your comment'}
+        {notif.article_title ? (
+          <span className="text-slate-400"> on &ldquo;{notif.article_title}&rdquo;</span>
+        ) : null}
+      </p>
+    ),
+    onClick: async () => {
+      await markOneRead(notif.id);
+      navigate(`/news/${notif.article_id}`, {
+        state: { article: notif.article_snapshot ?? null },
+      });
+    },
+  };
 }
 
 /**
@@ -90,21 +155,7 @@ export default function NotificationBell({
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
-  // ── Row click: mark read + navigate with article snapshot ────────────────
-  // Passing article_snapshot as route state means useArticleDetails uses the
-  // routeArticle fast path and never calls the location-scoped feed API,
-  // which would return "no article for your location" for cross-region articles.
-  const handleRowClick = useCallback(
-    async (notif) => {
-      await markOneRead(notif.id);
-      // Do NOT close the dropdown here — it closes naturally via outside-click
-      // once the user has navigated away, per the design spec.
-      navigate(`/news/${notif.article_id}`, {
-        state: { article: notif.article_snapshot ?? null },
-      });
-    },
-    [markOneRead, navigate]
-  );
+  // REMOVED: handleRowClick — per-notification onClick from getNotificationContent
 
   const handleMarkAll = useCallback(async () => {
     await markAllRead();
@@ -189,53 +240,65 @@ export default function NotificationBell({
                   : 'No notifications yet.'}
               </div>
             ) : (
-              displayList.map((notif) => (
-                <div
-                  key={notif.id}
-                  className="group relative w-full flex items-start border-b border-slate-100 last:border-0"
-                >
-                  <button
-                    type="button"
-                    onClick={() => handleRowClick(notif)}
-                    className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-l-2 ${
-                      !notif.is_read
-                        ? 'bg-blue-50 border-blue-500'
-                        : 'bg-white border-transparent'
-                    }`}
+              displayList.map((notif) => {
+                const { icon, message, onClick } = getNotificationContent(notif, markOneRead, navigate);
+                const isVerification = ['VERIFICATION_APPROVED', 'VERIFICATION_REJECTED']
+                  .includes(String(notif.type || '').toUpperCase());
+
+                return (
+                  <div
+                    key={notif.id}
+                    className="group relative w-full flex items-start border-b border-slate-100 last:border-0"
                   >
-                    <NotifAvatar
-                      photoUrl={notif.actor_photo_url}
-                      displayName={notif.actor_display_name}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm leading-snug ${!notif.is_read ? 'text-slate-900' : 'text-slate-500'}`}>
-                        <span className="font-semibold">{notif.actor_display_name}</span>
-                        {' replied to your comment'}
-                        {notif.article_title ? (
-                          <span className="text-slate-400"> on &quot;{notif.article_title}&quot;</span>
-                        ) : null}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {formatRelativeTime(notif.created_at)}
-                      </p>
-                    </div>
-                    {!notif.is_read && (
-                      <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-hidden="true" />
-                    )}
-                  </button>
-                  {notif.is_read && (
                     <button
                       type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={(e) => { e.stopPropagation(); deleteNotification(notif.id); }}
-                      className="self-start mt-2.5 mr-2 p-1 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                      aria-label="Dismiss notification"
+                      onClick={onClick}
+                      className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-l-2 ${
+                        !notif.is_read
+                          ? 'bg-blue-50 border-blue-500'
+                          : 'bg-white border-transparent'
+                      }`}
                     >
-                      <X className="w-3.5 h-3.5" />
+                      {isVerification
+                        ? (
+                          <div className={`w-9 h-9 rounded-full grid place-items-center shrink-0 ${
+                            String(notif.type).toUpperCase() === 'VERIFICATION_APPROVED'
+                              ? 'bg-green-50'
+                              : 'bg-red-50'
+                          }`}>
+                            {icon}
+                          </div>
+                        )
+                        : (
+                          <NotifAvatar
+                            photoUrl={notif.actor_photo_url}
+                            displayName={notif.actor_display_name}
+                          />
+                        )}
+                      <div className="flex-1 min-w-0">
+                        {message}
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {formatRelativeTime(notif.created_at)}
+                        </p>
+                      </div>
+                      {!notif.is_read && (
+                        <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-hidden="true" />
+                      )}
                     </button>
-                  )}
-                </div>
-              ))
+                    {notif.is_read && (
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={(e) => { e.stopPropagation(); deleteNotification(notif.id); }}
+                        className="self-start mt-2.5 mr-2 p-1 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                        aria-label="Dismiss notification"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
