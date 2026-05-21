@@ -118,6 +118,23 @@ export function useNotifications(currentUserId) {
     }
   }, [currentUserId]);
 
+  const deleteNotification = useCallback(async (id) => {
+    const snapshot = notifications;
+
+    // Optimistic: remove immediately before the network round-trip.
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      setNotifications(snapshot);
+      console.warn('deleteNotification failed:', error.message);
+    }
+  }, [notifications]);
+
   // ── unreadCount — DERIVED, never stored as separate state ────────────────
   // Keeping this as a memo over `notifications` ensures it updates instantly
   // after any optimistic flip without waiting for a DB round-trip.
@@ -126,5 +143,5 @@ export function useNotifications(currentUserId) {
     [notifications]
   );
 
-  return { notifications, unreadCount, markOneRead, markAllRead };
+  return { notifications, unreadCount, markOneRead, markAllRead, deleteNotification };
 }

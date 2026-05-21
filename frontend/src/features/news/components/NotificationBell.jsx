@@ -1,7 +1,7 @@
 // frontend/src/features/news/components/NotificationBell.jsx
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 
 function getInitials(name) {
   if (!name) return 'NU';
@@ -61,6 +61,7 @@ export default function NotificationBell({
   unreadCount   = 0,
   markOneRead,
   markAllRead,
+  deleteNotification,
 }) {
   const navigate = useNavigate();
 
@@ -180,7 +181,7 @@ export default function NotificationBell({
           </div>
 
           {/* Notification list */}
-          <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+          <div className="max-h-80 overflow-y-auto">
             {displayList.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
                 {activeTab === 'unread'
@@ -189,36 +190,51 @@ export default function NotificationBell({
               </div>
             ) : (
               displayList.map((notif) => (
-                <button
+                <div
                   key={notif.id}
-                  type="button"
-                  onClick={() => handleRowClick(notif)}
-                  className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-l-2 ${
-                    !notif.is_read
-                      ? 'bg-blue-50 border-blue-500'
-                      : 'bg-white border-transparent'
-                  }`}
+                  className="group relative w-full flex items-start border-b border-slate-100 last:border-0"
                 >
-                  <NotifAvatar
-                    photoUrl={notif.actor_photo_url}
-                    displayName={notif.actor_display_name}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm leading-snug ${!notif.is_read ? 'text-slate-900' : 'text-slate-500'}`}>
-                      <span className="font-semibold">{notif.actor_display_name}</span>
-                      {' replied to your comment'}
-                      {notif.article_title ? (
-                        <span className="text-slate-400"> on &quot;{notif.article_title}&quot;</span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {formatRelativeTime(notif.created_at)}
-                    </p>
-                  </div>
-                  {!notif.is_read && (
-                    <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => handleRowClick(notif)}
+                    className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors border-l-2 ${
+                      !notif.is_read
+                        ? 'bg-blue-50 border-blue-500'
+                        : 'bg-white border-transparent'
+                    }`}
+                  >
+                    <NotifAvatar
+                      photoUrl={notif.actor_photo_url}
+                      displayName={notif.actor_display_name}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm leading-snug ${!notif.is_read ? 'text-slate-900' : 'text-slate-500'}`}>
+                        <span className="font-semibold">{notif.actor_display_name}</span>
+                        {' replied to your comment'}
+                        {notif.article_title ? (
+                          <span className="text-slate-400"> on &quot;{notif.article_title}&quot;</span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {formatRelativeTime(notif.created_at)}
+                      </p>
+                    </div>
+                    {!notif.is_read && (
+                      <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" aria-hidden="true" />
+                    )}
+                  </button>
+                  {notif.is_read && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => { e.stopPropagation(); deleteNotification(notif.id); }}
+                      className="self-start mt-2.5 mr-2 p-1 rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                      aria-label="Dismiss notification"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   )}
-                </button>
+                </div>
               ))
             )}
           </div>

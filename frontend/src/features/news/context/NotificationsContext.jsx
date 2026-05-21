@@ -7,6 +7,7 @@ const DEFAULT_NOTIFICATIONS_CONTEXT = {
   unreadCount: 0,
   markOneRead: async () => {},
   markAllRead: async () => {},
+  deleteNotification: async () => {},
 };
 
 const NotificationsContext = createContext(DEFAULT_NOTIFICATIONS_CONTEXT);
