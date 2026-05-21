@@ -25,10 +25,11 @@ public class LocationController {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
     private final HttpClient httpClient;
-    private final ObjectMapper objectMapper;
+    // Static instance - no Spring injection needed. // CHANGED // REMOVED
+    // ObjectMapper is thread-safe after construction and safe to share. // CHANGED
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper(); // CHANGED // REMOVED
 
-    public LocationController(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+    public LocationController() { // CHANGED // REMOVED
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .build();
@@ -50,10 +51,10 @@ public class LocationController {
                 return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
             }
 
-            Map<String, Object> payload = objectMapper.readValue(
-                    response.body(),
-                    new TypeReference<Map<String, Object>>() {}
-            );
+            Map<String, Object> payload = OBJECT_MAPPER.readValue( // CHANGED
+                    response.body(), // CHANGED
+                    new TypeReference<Map<String, Object>>() {} // CHANGED
+            ); // CHANGED
 
             String area = firstNonBlank(normalizeText(payload.get("city")), normalizeText(payload.get("region")));
             String country = normalizeText(payload.get("country_name"));
