@@ -1,0 +1,161 @@
+// frontend/src/features/admin/pages/AdminVerificationDetail.jsx
+/*
+ * Changes:
+ * - Added localStatus to optimistically update the status badge immediately.
+ * - Show a read-only decision note after an admin action instead of the buttons.
+ */
+import React, { useCallback, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import ConfirmationModal from '../components/ConfirmationModal';
+// AdminDataState, AdminPageHeader, AdminStatusBadge, and adminApi helpers are intentionally unchanged.
+import AdminDataState from '../components/AdminDataState';
+import AdminPageHeader from '../components/AdminPageHeader';
+import AdminStatusBadge from '../components/AdminStatusBadge';
+import { useAdminResource } from '../hooks/useAdminResource';
+import { getCurrentAdminProfile, getVerificationById, updateVerificationStatus } from '../services/adminApi';
+
+/**
+ * Formats date-time for human display.
+ * @param {string | null | undefined} value
+ * @returns {string}
+ */
+function formatDateTime(value) {
+  if (!value) {
+    return 'N/A';
+  }
+  return new Date(value).toLocaleString();
+}
+
+/**
+ * Renders detailed verification review page.
+ * @returns {JSX.Element}
+ */
+export default function AdminVerificationDetail() {
+  const { verificationId } = useParams();
+  const [message, setMessage] = useState('');
+  const [decisionOutcome, setDecisionOutcome] = useState(null);
+  const [localStatus, setLocalStatus] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const loadDetail = useCallback(() => getVerificationById(verificationId), [verificationId]);
+  const { data, loading, error, reload } = useAdminResource(loadDetail, [verificationId]);
+
+  const isPending = useMemo(() => String(data?.status || '').toUpperCase() === 'PENDING', [data]);
+
+  /** Applies the selected review decision to current verification. */
+  const handleDecision = async (status) => {
+    setMessage('');
+    setDecisionOutcome(null);
+    setIsSaving(true);
+    try {
+      const admin = await getCurrentAdminProfile();
+      if (!admin?.id) {
+        throw new Error('Unable to resolve admin identity.');
+      }
+      await updateVerificationStatus({ verificationId, status, adminUserId: admin.id });
+      setLocalStatus(status);
+      setDecisionOutcome(status);
+      setMessage(`Verification ${status.toLowerCase()} successfully.`);
+      await reload();
+    } catch (saveError) {
+      setDecisionOutcome('ERROR');
+      setMessage(saveError?.message || 'Unable to update verification.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!pendingDecision) return;
+    setIsConfirming(true);
+    try {
+      await handleDecision(pendingDecision);
+    } finally {
+      setIsConfirming(false);
+      setPendingDecision(null);
+    }
+  };
+
+  const handleCancel = () => {
+    if (isConfirming) return;
+    setPendingDecision(null);
+  };
+
+  const decisionTarget = data?.full_name || 'This user';
+  const modalCopy = pendingDecision === 'APPROVED'
+    ? {
+      title: 'Approve Verification',
+      message: `This will mark ${decisionTarget}'s identity as verified. This action cannot be undone.`,
+      confirmLabel: 'Yes, Approve',
+      confirmClassName: 'bg-green-600 hover:bg-green-700 disabled:hover:bg-green-600',
+    }
+    : pendingDecision === 'REJECTED'
+      ? {
+        title: 'Reject Verification',
+        message: `This will deny ${decisionTarget}'s verification request. They will need to resubmit. This action cannot be undone.`,
+        confirmLabel: 'Yes, Reject',
+        confirmClassName: 'bg-red-600 hover:bg-red-700 disabled:hover:bg-red-600',
+      }
+      : null;
+
+  return (
+    <div>
+      <AdminPageHeader
+        title="Verification Review"
+        subtitle="Inspect evidence and apply approval decision."
+        actions={<Link to="/admin/verifications" className="text-sm text-blue-600 hover:text-blue-700">Back to list</Link>}
+      />
+
+      {message ? <p className={`text-sm mb-4 ${decisionOutcome === 'APPROVED' ? 'text-green-700' : 'text-red-600'}`}>{message}</p> : null}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+        <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && !data} emptyText="Verification not found." />
+
+        {!loading && !error && data ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">{data.full_name}</h2>
+              <AdminStatusBadge value={localStatus ?? data?.status} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <p><span className="text-slate-500">National ID No.:</span> {data.national_id_number || 'N/A'}</p>
+              <p><span className="text-slate-500">Birthdate:</span> {data.birthdate || 'N/A'}</p>
+              <p><span className="text-slate-500">Address:</span> {data.address}</p>
+              <p><span className="text-slate-500">Submitted:</span> {formatDateTime(data.submitted_at)}</p>
+              <p><span className="text-slate-500">Reviewed:</span> {formatDateTime(data.reviewed_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Photo ID</p>
+              <a href={data.photo_id_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-700 break-all">{data.photo_id_url}</a>
+            </div>
+            {isPending ? (
+              localStatus ? (
+                <p className="text-sm text-slate-500 italic pt-2 border-t border-slate-100">
+                  Decision recorded. This verification has been {localStatus.toLowerCase()}.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                  <button type="button" disabled={isSaving || isConfirming} onClick={() => setPendingDecision('APPROVED')} className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-60">Approve</button>
+                  <button type="button" disabled={isSaving || isConfirming} onClick={() => setPendingDecision('REJECTED')} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700 disabled:opacity-60">Reject</button>
+                </div>
+              )
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {modalCopy ? (
+        <ConfirmationModal
+          isOpen={pendingDecision !== null}
+          title={modalCopy.title}
+          message={modalCopy.message}
+          confirmLabel={modalCopy.confirmLabel}
+          confirmClassName={modalCopy.confirmClassName}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+          isConfirming={isConfirming}
+        />
+      ) : null}
+    </div>
+  );
+}

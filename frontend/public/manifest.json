@@ -1,0 +1,20 @@
+{
+  "short_name": "NewsHub",
+  "name": "NewsHub — Philippines News & Elections",
+  "icons": [
+    {
+      "src": "newshub-logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "newshub-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1d4ed8",
+  "background_color": "#f8fafc"
+}

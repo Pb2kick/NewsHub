@@ -1,0 +1,32 @@
+.vscode/
+.idea/
+*.swp
+*.log
+.DS_Store
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/build/
+
+# Maven
+backend/target/
+backend/.mvn/
+backend/mvnw
+backend/mvnw.cmd
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Misc
+*.iml
+*.class
+*.jar
+*.war
+*.ear
+*.db
+*.sqlite
+*.sublime-workspace
+*.sublime-project
