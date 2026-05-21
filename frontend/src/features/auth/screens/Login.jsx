@@ -174,6 +174,12 @@ export default function Login() {
       }
 
       const normalizedRole = String(resolvedRole || '').trim().toUpperCase();
+      if (normalizedRole === 'BANNED') {
+        await supabase.auth.signOut();
+        setServerError('This account has been suspended. Please contact support.');
+        setIsLoading(false);
+        return;
+      }
       const redirectPath = normalizedRole === 'ADMIN' ? '/admin' : '/home';
 
       if (redirectPath !== '/admin') {
