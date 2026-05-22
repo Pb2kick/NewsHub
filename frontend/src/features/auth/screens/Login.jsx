@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -24,6 +24,26 @@ const loginSchema = z.object({
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MS = 30 * 1000;
+const RESEND_COOLDOWN_SECONDS = 60;
+
+const EMAIL_RATE_LIMIT_MESSAGE =
+  'Email rate limit reached. Please wait 60 seconds before trying again, or contact support if this persists.';
+
+/**
+ * Detects Supabase auth email rate-limit responses (429 / "email rate limit exceeded").
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isEmailRateLimitError(message = '') {
+  const text = message.toLowerCase();
+  return (
+    text.includes('too many requests') ||
+    text.includes('rate limit') ||
+    text.includes('email rate limit exceeded') ||
+    text.includes('exceeded') ||
+    text.includes('429')
+  );
+}
 
 function mapLoginError(message = '') {
   const text = message.toLowerCase();
@@ -48,9 +68,9 @@ function mapLoginError(message = '') {
     };
   }
 
-  if (text.includes('too many requests') || text.includes('rate limit')) {
+  if (isEmailRateLimitError(message)) {
     return {
-      message: 'Too many attempts. Please wait a minute and try again.',
+      message: EMAIL_RATE_LIMIT_MESSAGE,
       showResend: false,
       invalidCredentials: false,
     };
@@ -86,6 +106,16 @@ export default function Login() {
   const [otpValue, setOtpValue] = useState('');
   const [otpError, setOtpError] = useState('');
   const [isOtpLoading, setIsOtpLoading] = useState(false);
+  // 60-second client-side cooldown prevents rapid signInWithOtp() calls
+  // that burn through Supabase's (or Gmail SMTP's) email rate limits.
+  // Even with custom SMTP configured, defensive throttling is good practice.
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   const {
     register,
@@ -163,13 +193,22 @@ export default function Login() {
       // code — NOT {{ .ConfirmationURL }}. Change in:
       // Auth → Email Templates → Magic Link → replace body with OTP template.
       // See: db/migrations/supabase_email_template_instructions.txt
+      // SMTP (429 fix): db/migrations/supabase_smtp_instructions.txt
       const { error: otpSendError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: { shouldCreateUser: false },
       });
 
       if (otpSendError) {
-        setServerError(otpSendError.message || 'Unable to send verification code. Please try again.');
+        const otpMsg = otpSendError.message || '';
+        setServerError(
+          isEmailRateLimitError(otpMsg)
+            ? EMAIL_RATE_LIMIT_MESSAGE
+            : otpMsg || 'Unable to send verification code. Please try again.'
+        );
+        if (isEmailRateLimitError(otpMsg)) {
+          setResendCooldown(RESEND_COOLDOWN_SECONDS);
+        }
         setIsLoading(false);
         return;
       }
@@ -180,6 +219,7 @@ export default function Login() {
       setOtpStep(true);
       setOtpValue('');
       setOtpError('');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
       setInfoMessage(`We sent a 6-digit code to ${normalizedEmail}. Enter it below to complete sign-in.`);
       setIsLoading(false);
       return;
@@ -224,6 +264,8 @@ export default function Login() {
   };
 
   const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
+
     setOtpError('');
     setOtpValue('');
     const { error: resendError } = await supabase.auth.signInWithOtp({
@@ -231,9 +273,18 @@ export default function Login() {
       options: { shouldCreateUser: false },
     });
     if (resendError) {
-      setOtpError(resendError.message || 'Unable to resend code.');
+      const resendMsg = resendError.message || '';
+      setOtpError(
+        isEmailRateLimitError(resendMsg)
+          ? EMAIL_RATE_LIMIT_MESSAGE
+          : resendMsg || 'Unable to resend code.'
+      );
+      if (isEmailRateLimitError(resendMsg)) {
+        setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      }
     } else {
       setInfoMessage(`A new code was sent to ${otpEmail}.`);
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
     }
   };
 
@@ -446,9 +497,14 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={handleResendOtp}
-                  className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                  disabled={resendCooldown > 0}
+                  className={`font-semibold text-blue-600 dark:text-blue-400 ${
+                    resendCooldown > 0
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:text-blue-700'
+                  }`}
                 >
-                  Resend code
+                  {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : 'Resend code'}
                 </button>
                 <button
                   type="button"
