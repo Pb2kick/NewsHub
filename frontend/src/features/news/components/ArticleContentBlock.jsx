@@ -1,7 +1,8 @@
 // frontend/src/features/news/components/ArticleContentBlock.jsx
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Loader2, MessageSquare, Reply, Trash2 } from 'lucide-react';
+import { ExternalLink, Flag, Loader2, MessageSquare, Reply, Trash2 } from 'lucide-react';
+import ReportModal from '../../shared/components/ReportModal';
 import { useArticleComments } from '../hooks/useArticleComments';
 
 const MAX_COMMENT_LENGTH = 2000;
@@ -103,6 +104,7 @@ function CommentCard({
   onReplyDraftChange,
   onReplySubmit,
   onDelete,
+  onReport,
 }) {
   const isExpanded = expandedIds.has(node.id);
   const isReplyOpen = replyingToId === node.id;
@@ -111,6 +113,7 @@ function CommentCard({
   const displayContent = node.content && node.content.trim().length > 0
     ? node.content
     : 'Comment deleted';
+  const hasReportableContent = Boolean(node.content && node.content.trim().length > 0);
   const isNested = depth > 0;
 
   const indentClass = depth === 0
@@ -161,6 +164,17 @@ function CommentCard({
                   >
                     <Reply className="h-3 w-3" />
                     Reply
+                  </button>
+                )}
+                {/* Report button hidden for own comments and deleted content — users cannot self-report. */}
+                {currentUser && node.user_id !== currentUser?.id && hasReportableContent && (
+                  <button
+                    type="button"
+                    onClick={() => onReport(node)}
+                    className="p-1 rounded text-slate-400 hover:text-rose-500 transition-colors"
+                    aria-label="Report comment"
+                  >
+                    <Flag className="w-3.5 h-3.5" />
                   </button>
                 )}
                 {node.user_id === currentUser?.id && (
@@ -245,6 +259,7 @@ function CommentCard({
               onReplyDraftChange={onReplyDraftChange}
               onReplySubmit={onReplySubmit}
               onDelete={onDelete}
+              onReport={onReport}
             />
           ))}
         </div>
@@ -296,6 +311,7 @@ export default function ArticleContentBlock({
   const [replyDraft,        setReplyDraft]        = useState('');
   const [isReplySubmitting, setIsReplySubmitting] = useState(false);
   const [expandedIds,       setExpandedIds]       = useState(new Set());
+  const [reportTarget,      setReportTarget]      = useState(null);
 
   // ── Derive threaded structure ────────────────────────────────────────────
   const commentTree = useMemo(() => buildTree(comments), [comments]);
@@ -365,6 +381,12 @@ export default function ArticleContentBlock({
     } catch {
       // error surfaced via hook state
     }
+  };
+
+  const handleOpenReport = (node) => {
+    setReplyingToId(null);
+    setReplyDraft('');
+    setReportTarget(node);
   };
 
   return (
@@ -437,6 +459,7 @@ export default function ArticleContentBlock({
                 onReplyDraftChange={setReplyDraft}
                 onReplySubmit={handleReplySubmit}
                 onDelete={handleDelete}
+                onReport={handleOpenReport}
               />
             ))}
           </div>
@@ -480,6 +503,18 @@ export default function ArticleContentBlock({
           </div>
         )}
       </div>
+
+      <ReportModal
+        isOpen={reportTarget !== null}
+        onClose={() => setReportTarget(null)}
+        targetType="comment"
+        targetId={reportTarget ? String(reportTarget.id) : ''}
+        targetLabel={
+          reportTarget
+            ? `${reportTarget.display_name}: ${String(reportTarget.content || '').slice(0, 60)}`
+            : ''
+        }
+      />
     </>
   );
 }

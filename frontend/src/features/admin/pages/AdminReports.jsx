@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Eye, Search, X } from 'lucide-react';
 import AdminDataState from '../components/AdminDataState';
 import AdminPageHeader from '../components/AdminPageHeader';
 import { useAdminResource } from '../hooks/useAdminResource';
@@ -131,6 +131,7 @@ export default function AdminReports() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [actionError, setActionError] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   const loadReportsResource = useCallback(() => loadReports(), []);
   const { data, loading, error, reload } = useAdminResource(loadReportsResource, []);
@@ -184,6 +185,11 @@ export default function AdminReports() {
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const handleDrawerStatusUpdate = async (reportId, status) => {
+    await handleStatusUpdate(reportId, status);
+    setSelectedReport(null);
   };
 
   const showCharts = !loading && !error && chartRows.length > 0;
@@ -278,34 +284,181 @@ export default function AdminReports() {
                       {item.created_at ? new Date(item.created_at).toLocaleDateString() : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {status === 'PENDING' ? (
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={isUpdating}
-                            onClick={() => handleStatusUpdate(item.id, 'REVIEWED')}
-                            className="rounded-lg border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-60"
-                          >
-                            Mark Reviewed
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isUpdating}
-                            onClick={() => handleStatusUpdate(item.id, 'DISMISSED')}
-                            className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60"
-                          >
-                            Dismiss
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">—</span>
-                      )}
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedReport(item)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                          aria-label="View report details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {status === 'PENDING' ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isUpdating}
+                              onClick={() => handleStatusUpdate(item.id, 'REVIEWED')}
+                              className="rounded-lg border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-60"
+                            >
+                              Mark Reviewed
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isUpdating}
+                              onClick={() => handleStatusUpdate(item.id, 'DISMISSED')}
+                              className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60"
+                            >
+                              Dismiss
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        ) : null}
+      </div>
+
+      {selectedReport !== null ? (
+        <div
+          className="fixed inset-0 bg-black/30 z-30"
+          onClick={() => setSelectedReport(null)}
+          role="presentation"
+        />
+      ) : null}
+
+      <div
+        className={`fixed inset-y-0 right-0 z-40 w-full max-w-md bg-white dark:bg-slate-900 shadow-2xl flex flex-col transform transition-transform duration-300 ${
+          selectedReport ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="report-drawer-title"
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 px-6 py-4">
+          <h2 id="report-drawer-title" className="text-lg font-bold text-slate-900 dark:text-slate-100">
+            Report Details
+          </h2>
+          <button
+            type="button"
+            onClick={() => setSelectedReport(null)}
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Close report details"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {selectedReport ? (
+          <>
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Type
+                </p>
+                <span
+                  className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${
+                    TYPE_BADGE_CLASSES[String(selectedReport.target_type || '').toLowerCase()]
+                    || TYPE_BADGE_CLASSES.comment
+                  }`}
+                >
+                  {String(selectedReport.target_type || 'unknown').toLowerCase()}
+                </span>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Target
+                </p>
+                <p className="text-sm text-slate-900 dark:text-slate-100 break-words">
+                  {selectedReport.target_label || selectedReport.target_id || '-'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Reason
+                </p>
+                <p className="text-sm text-slate-700 dark:text-slate-300">
+                  {selectedReport.reason || 'Not specified'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Additional Details
+                </p>
+                {selectedReport.details && String(selectedReport.details).trim() ? (
+                  <p className="text-sm text-slate-700 dark:text-slate-300 rounded-lg bg-slate-50 dark:bg-slate-800 p-3 whitespace-pre-wrap break-words">
+                    {selectedReport.details}
+                  </p>
+                ) : (
+                  <p className="text-sm italic text-slate-400">No additional details provided.</p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Status
+                </p>
+                <span
+                  className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
+                    STATUS_BADGE_CLASSES[String(selectedReport.status || '').toUpperCase()]
+                    || STATUS_BADGE_CLASSES.PENDING
+                  }`}
+                >
+                  {String(selectedReport.status || 'UNKNOWN').toUpperCase()}
+                </span>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                  Submitted
+                </p>
+                <p className="text-sm text-slate-700 dark:text-slate-300">
+                  {selectedReport.created_at
+                    ? new Date(selectedReport.created_at).toLocaleDateString()
+                    : '-'}
+                </p>
+              </div>
+
+              {selectedReport.reviewed_at ? (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                    Reviewed at
+                  </p>
+                  <p className="text-sm text-slate-700 dark:text-slate-300">
+                    {new Date(selectedReport.reviewed_at).toLocaleDateString()}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            {String(selectedReport.status || '').toUpperCase() === 'PENDING' ? (
+              <div className="border-t border-slate-200 dark:border-slate-700 p-4 flex gap-2">
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={() => handleDrawerStatusUpdate(selectedReport.id, 'REVIEWED')}
+                  className="flex-1 rounded-lg border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-60"
+                >
+                  Mark Reviewed
+                </button>
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={() => handleDrawerStatusUpdate(selectedReport.id, 'DISMISSED')}
+                  className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
