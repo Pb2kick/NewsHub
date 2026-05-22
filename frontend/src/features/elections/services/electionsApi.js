@@ -137,10 +137,14 @@ export async function checkHasVoted(userId, electionId) {
   }
 }
 
-export async function castVote({ electionId, candidateId, userId }) {
+export async function castVote({ electionId, candidateId, userId, authUserId }) { // CHANGED: added authUserId param
   try {
     if (!electionId || !candidateId || !userId) {
       return { success: false, reason: 'UNEXPECTED', message: 'Missing vote details.' };
+    }
+    // CHANGED: cannot check verification without the auth UUID — fail fast.
+    if (!authUserId) {
+      return { success: false, reason: 'NOT_VERIFIED' };
     }
 
     const { data: existingVote, error: voteError } = await supabase
@@ -174,7 +178,7 @@ export async function castVote({ electionId, candidateId, userId }) {
     const { data: verificationRow, error: verificationError } = await supabase
       .from('verifications')
       .select('status')
-      .eq('user_id', userId)
+      .eq('user_id', authUserId)     // CHANGED: was .eq('user_id', userId) — verifications.user_id is uuid not bigint
       .order('submitted_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -207,6 +211,7 @@ export async function castVote({ electionId, candidateId, userId }) {
     return { success: false, reason: 'UNEXPECTED', message: error?.message || 'Unexpected error.' };
   }
 }
+
 
 export async function getElectionById(id) {
   try {
