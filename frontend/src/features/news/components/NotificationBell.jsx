@@ -67,6 +67,9 @@ function getNotificationContent(notif, markOneRead, navigate) {
   }
 
   if (type === 'VERIFICATION_REJECTED') {
+    // CHANGED: notif.article_title carries the rejection reason when non-null
+    // (repurposed field — set by updateVerificationStatus when a reason is provided).
+    const rejectionReason = notif.article_title || ''; // NEW
     return {
       icon: <ShieldX className="w-5 h-5 text-red-500" />,
       message: (
@@ -74,9 +77,15 @@ function getNotificationContent(notif, markOneRead, navigate) {
           <span className="font-semibold text-red-700">
             Your identity verification was not approved.
           </span>
-          <span className="text-slate-500 block text-xs mt-0.5">
-            Please resubmit with a clearer ID photo.
-          </span>
+          {rejectionReason ? ( // NEW: show admin-supplied reason when present
+            <span className="text-slate-600 block text-xs mt-0.5 italic"> {/* NEW */}
+              Reason: {rejectionReason} {/* NEW */}
+            </span> // NEW
+          ) : (
+            <span className="text-slate-500 block text-xs mt-0.5">
+              Please resubmit with a clearer ID photo.
+            </span>
+          )}
         </p>
       ),
       onClick: async () => {

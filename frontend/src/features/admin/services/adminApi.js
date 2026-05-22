@@ -215,11 +215,13 @@ export async function getVerificationById(verificationId) {
  * @param {{ verificationId: string | number, status: 'APPROVED' | 'REJECTED', adminUserId: string | number }} params
  * @returns {Promise<void>}
  */
-export async function updateVerificationStatus({ verificationId, status, adminUserId }) {
+export async function updateVerificationStatus({ verificationId, status, adminUserId, reason = '' }) { // CHANGED: added reason param
   const payload = {
     status,
     reviewed_at: new Date().toISOString(),
     reviewed_by_admin_id: Number(adminUserId),
+    // CHANGED: only persist rejection_reason for REJECTED decisions; null for APPROVED.
+    rejection_reason: status.toUpperCase() === 'REJECTED' ? (reason.trim() || null) : null,
   };
 
   const { error } = await supabase
@@ -278,7 +280,9 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
         actor_photo_url:    '',                                                // NEW
         comment_id:         null,                                              // NEW
         article_id:         null,                                              // NEW
-        article_title:      null,                                              // NEW
+        // CHANGED: article_title repurposed to carry rejection reason text so
+        // NotificationBell can display it without adding a new notifications column.
+        article_title: status.toUpperCase() === 'REJECTED' ? (reason.trim() || null) : null, // CHANGED
         article_snapshot:   null,                                              // NEW
         is_read:            false,                                             // NEW
         type:               notificationType,                                  // NEW
@@ -449,7 +453,7 @@ export async function getUserCommentHistory(authUserId) {
  * @param {string} userId
  * @returns {Promise<{ success: boolean, message?: string }>}
  */
-export async function banUser(userId) {
+export async function banUser(userId, reason = '') { // CHANGED: added reason param
   // Works correctly once the Supabase RLS migration is applied and this admin
   // user has app_metadata.role = 'ADMIN' in their JWT.
   // See: db/migrations/fix_users_rls_admin_access.sql
@@ -457,7 +461,10 @@ export async function banUser(userId) {
   try {
     const { error } = await supabase
       .from('users')
-      .update({ role: 'BANNED' })
+      .update({
+        role: 'BANNED',
+        ban_reason: reason.trim() || null, // NEW: persist optional ban reason
+      })
       .eq('id', userId);
 
     if (error) {

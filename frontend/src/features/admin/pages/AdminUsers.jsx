@@ -20,20 +20,22 @@ export default function AdminUsers() {
   const [pendingUnban, setPendingUnban] = useState(null); // NEW: track user pending unban
   const [isUnbanning, setIsUnbanning] = useState(false); // NEW: pending unban action flag
   const [viewingUser, setViewingUser] = useState(null); // NEW
+  const [banReason, setBanReason] = useState(''); // NEW: controlled reason for ban modal
 
   const loadUsers = useCallback(() => listUsers({ search }), [search]);
   const { data, loading, error, reload } = useAdminResource(loadUsers, [search]);
   const users = data || [];
 
-  const handleConfirmBan = async () => {
+  const handleConfirmBan = async (reason = '') => { // CHANGED: accepts reason from modal
     if (!pendingBan) {
       return;
     }
 
     setIsBanning(true);
-    const result = await banUser(pendingBan.id);
+    const result = await banUser(pendingBan.id, reason); // CHANGED: forwards reason
     if (result?.success) {
       setMessage('User banned.');
+      setBanReason(''); // NEW: reset reason after success
       await reload();
     } else {
       setMessage(result?.message || 'Unable to ban user.');
@@ -152,8 +154,11 @@ export default function AdminUsers() {
         confirmLabel="Yes, Ban User"
         confirmClassName="bg-red-600 text-white hover:bg-red-700"
         onConfirm={handleConfirmBan}
-        onCancel={() => setPendingBan(null)}
+        onCancel={() => { setPendingBan(null); setBanReason(''); }} // CHANGED: reset reason on cancel
         isConfirming={isBanning}
+        showReasonInput={true}       // NEW: show reason textarea for bans
+        reason={banReason}           // NEW
+        onReasonChange={setBanReason} // NEW
       />
       <ConfirmationModal
         isOpen={pendingUnban !== null}

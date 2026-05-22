@@ -38,13 +38,14 @@ export default function AdminVerificationDetail() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDecision, setPendingDecision] = useState(null);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [rejectReason, setRejectReason] = useState(''); // NEW: controlled reason for reject modal
   const loadDetail = useCallback(() => getVerificationById(verificationId), [verificationId]);
   const { data, loading, error, reload } = useAdminResource(loadDetail, [verificationId]);
 
   const isPending = useMemo(() => String(data?.status || '').toUpperCase() === 'PENDING', [data]);
 
   /** Applies the selected review decision to current verification. */
-  const handleDecision = async (status) => {
+  const handleDecision = async (status, reason = '') => { // CHANGED: added reason param
     setMessage('');
     setDecisionOutcome(null);
     setIsSaving(true);
@@ -53,7 +54,7 @@ export default function AdminVerificationDetail() {
       if (!admin?.id) {
         throw new Error('Unable to resolve admin identity.');
       }
-      await updateVerificationStatus({ verificationId, status, adminUserId: admin.id });
+      await updateVerificationStatus({ verificationId, status, adminUserId: admin.id, reason }); // CHANGED: forwards reason
       setLocalStatus(status);
       setDecisionOutcome(status);
       setMessage(`Verification ${status.toLowerCase()} successfully.`);
@@ -66,20 +67,22 @@ export default function AdminVerificationDetail() {
     }
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (reason = '') => { // CHANGED: accepts reason from modal
     if (!pendingDecision) return;
     setIsConfirming(true);
     try {
-      await handleDecision(pendingDecision);
+      await handleDecision(pendingDecision, reason); // CHANGED: forwards reason
     } finally {
       setIsConfirming(false);
       setPendingDecision(null);
+      setRejectReason(''); // NEW: reset reason after confirm
     }
   };
 
   const handleCancel = () => {
     if (isConfirming) return;
     setPendingDecision(null);
+    setRejectReason(''); // NEW: reset reason on cancel
   };
 
   const decisionTarget = data?.full_name || 'This user';
@@ -154,6 +157,9 @@ export default function AdminVerificationDetail() {
           onConfirm={handleConfirm}
           onCancel={handleCancel}
           isConfirming={isConfirming}
+          showReasonInput={pendingDecision === 'REJECTED'} // NEW: textarea only for REJECTED
+          reason={rejectReason}                           // NEW
+          onReasonChange={setRejectReason}               // NEW
         />
       ) : null}
     </div>
