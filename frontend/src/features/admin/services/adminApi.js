@@ -251,7 +251,47 @@ export async function updateVerificationStatus({ verificationId, status, adminUs
     );
   }
 
-  // Verification notifications are inserted by trg_verification_status_change (DB trigger).
+  // Fetch the verification row so we have the recipient user_id for the notification.
+  const { data: verificationRow } = await supabase  // NEW
+    .from('verifications')                           // NEW
+    .select('user_id')                               // NEW
+    .eq('id', verificationId)                        // NEW
+    .maybeSingle();                                  // NEW
+
+  // Resolve admin auth UUID for actor_user_id (NOT NULL column).              // NEW
+  // supabase.auth.getUser() is available here; DB triggers are not.           // NEW
+  const { data: { user: adminAuthUser } } = await supabase.auth.getUser();    // NEW
+  const adminAuthUuid = adminAuthUser?.id || null;                             // NEW
+
+  const notificationType =                                                     // NEW
+    status.toUpperCase() === 'APPROVED'                                        // NEW
+      ? 'VERIFICATION_APPROVED'                                                // NEW
+      : 'VERIFICATION_REJECTED';                                               // NEW
+
+  try {                                                                        // NEW
+    const { error: notifyError } = await supabase                             // NEW
+      .from('notifications')                                                   // NEW
+      .insert({                                                                // NEW
+        recipient_user_id: verificationRow?.user_id ?? null,                  // NEW
+        actor_user_id:     adminAuthUuid,   // real auth UUID — satisfies NOT NULL  // NEW
+        actor_display_name: 'NewsHub Admin',                                  // NEW
+        actor_photo_url:    '',                                                // NEW
+        comment_id:         null,                                              // NEW
+        article_id:         null,                                              // NEW
+        article_title:      null,                                              // NEW
+        article_snapshot:   null,                                              // NEW
+        is_read:            false,                                             // NEW
+        type:               notificationType,                                  // NEW
+      });                                                                      // NEW
+
+    if (notifyError) {                                                         // NEW
+      // Non-fatal: log but never rethrow — notification failure must not      // NEW
+      // block the verification decision from completing.                      // NEW
+      console.warn('Verification notification insert failed:', notifyError.message); // NEW
+    }                                                                          // NEW
+  } catch (notifyEx) {                                                         // NEW
+    console.warn('Unexpected error inserting verification notification:', notifyEx); // NEW
+  }                                                                            // NEW
 }
 
 /**
