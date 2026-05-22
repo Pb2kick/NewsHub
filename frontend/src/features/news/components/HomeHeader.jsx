@@ -4,6 +4,7 @@ import { ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
 import GlobalSearchDropdown from './GlobalSearchDropdown';
 import NotificationBell from './NotificationBell';
+import ThemeToggle from '../../shared/components/ThemeToggle';
 import newshubLogo from '../../../assets/newshub-logo.png';
 
 /**
@@ -66,13 +67,13 @@ export default function HomeHeader(props) {
   }, [setIsSearchOpen, setSearchQuery]);
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-40">
+    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40">
       {isAdminViewMode ? <div className="h-1 w-full bg-amber-500" aria-hidden="true" /> : null}
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="h-16 flex items-center justify-between gap-3 sm:gap-6">
           <Link to="/home" className="flex items-center gap-2 shrink-0">
             <img src={newshubLogo} alt="NewsHub" className="w-8 h-8 object-contain" />
-            <span className="text-xl font-extrabold text-slate-900 tracking-tight">NewsHub</span>
+            <span className="text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">NewsHub</span>
           </Link>
 
           {/* Desktop search bar */}
@@ -88,7 +89,7 @@ export default function HomeHeader(props) {
               }}
               placeholder="Search news, elections, candidates..."
               autoComplete="off"
-              className="w-full h-11 rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full h-11 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-10 pr-4 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
             {isSearchOpen && (
               <GlobalSearchDropdown
@@ -114,11 +115,12 @@ export default function HomeHeader(props) {
               markAllRead={markAllRead}
               deleteNotification={deleteNotification} // CHANGED: pass through deleteNotification
             />
-            <div ref={setProfileMenuElement} className="relative border-l border-slate-200 pl-2 sm:pl-4">
+            <ThemeToggle />
+            <div ref={setProfileMenuElement} className="relative border-l border-slate-200 dark:border-slate-700 pl-2 sm:pl-4">
               <button
                 type="button"
                 onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-100"
+                className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs grid place-items-center overflow-hidden">
                   {profilePhotoUrl ? <img src={profilePhotoUrl} alt="Profile" className="w-full h-full object-cover" /> : profileInitials}
@@ -127,7 +129,7 @@ export default function HomeHeader(props) {
               </button>
 
               {isProfileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-40 rounded-xl border border-slate-200 bg-white shadow-lg py-1 z-50">
+                <div className="absolute right-0 mt-2 w-40 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 z-50">
                   {isAdminViewMode ? (
                     <Link
                       to="/admin"
@@ -140,7 +142,7 @@ export default function HomeHeader(props) {
                   <Link
                     to="/profile"
                     onClick={() => setIsProfileMenuOpen(false)}
-                    className="block px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="block px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
                     Profile
                   </Link>
@@ -171,7 +173,7 @@ export default function HomeHeader(props) {
               }}
               placeholder="Search news..."
               autoComplete="off"
-              className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-10 pr-3 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
             {isSearchOpen && (
               <GlobalSearchDropdown
@@ -183,8 +185,8 @@ export default function HomeHeader(props) {
           </div>
         </div>
 
-        <div className="h-12 border-t border-slate-100 flex items-center overflow-x-auto no-scrollbar">
-          <nav className="flex items-center gap-6 text-sm font-semibold text-slate-500 whitespace-nowrap">
+        <div className="h-12 border-t border-slate-100 dark:border-slate-700 flex items-center overflow-x-auto no-scrollbar">
+          <nav className="flex items-center gap-6 text-sm font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
             {topCategories.map((category) => (
               <button
                 key={category}
@@ -193,7 +195,7 @@ export default function HomeHeader(props) {
                 className={`pb-3 border-b-2 transition-colors ${
                   category === selectedNewsCategory
                     ? 'text-blue-600 border-blue-600'
-                    : 'border-transparent hover:text-slate-900'
+                    : 'border-transparent hover:text-slate-900 dark:hover:text-slate-100'
                 }`}
               >
                 {category}

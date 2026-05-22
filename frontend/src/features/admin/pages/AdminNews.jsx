@@ -48,14 +48,14 @@ export default function AdminNews() {
     <div>
       <AdminPageHeader
         title="News Moderation"
-        actions={<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search news" className="border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm" />}
+        actions={<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search news" className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-300" />}
       />
       {message ? <p className="text-sm text-green-700 mb-3">{message}</p> : null}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
         <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && filtered.length === 0} emptyText="No news records found." />
         {!loading && !error && filtered.length > 0 ? (
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3 text-left">Title</th>
                 <th className="px-4 py-3 text-left">Source</th>
@@ -67,11 +67,11 @@ export default function AdminNews() {
             </thead>
             <tbody>
               {filtered.map((item) => (
-                <tr key={item.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">{item.title}</td>
-                  <td className="px-4 py-3 text-slate-600">{item.source || 'N/A'}</td>
-                  <td className="px-4 py-3 text-slate-600">{item.published_at ? new Date(item.published_at).toLocaleString() : 'N/A'}</td>
-                  <td className="px-4 py-3 text-slate-600">{[item.region, item.country].filter(Boolean).join(', ') || 'N/A'}</td>
+                <tr key={item.id} className="border-t border-slate-100 dark:border-slate-700">
+                  <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{item.title}</td>
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{item.source || 'N/A'}</td>
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{item.published_at ? new Date(item.published_at).toLocaleString() : 'N/A'}</td>
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{[item.region, item.country].filter(Boolean).join(', ') || 'N/A'}</td>
                   <td className="px-4 py-3">
                     {item.source_url ? (
                       <a

@@ -119,11 +119,11 @@ function CommentCard({
       ? 'ml-4'
       : 'ml-0';
   const threadClass = depth > 0 && depth <= MAX_VISUAL_DEPTH
-    ? 'border-l-2 border-slate-100 pl-3'
+    ? 'border-l-2 border-slate-100 dark:border-slate-700 pl-3'
     : '';
   const cardClass = isNested
-    ? 'rounded-xl border border-slate-100 bg-slate-50 p-3'
-    : 'rounded-xl border border-slate-200 bg-white p-4';
+    ? 'rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3'
+    : 'rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4';
   const gapClass = isNested ? 'gap-2.5' : 'gap-3';
   const nameClass = isNested ? 'text-xs' : 'text-sm';
   const bodyClass = isNested ? 'text-xs' : 'text-sm';
@@ -145,7 +145,7 @@ function CommentCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className={`${nameClass} font-semibold text-slate-800`}>
+                <p className={`${nameClass} font-semibold text-slate-800 dark:text-slate-100`}>
                   {displayName}
                 </p>
                 <p className="text-xs text-slate-400">
@@ -176,7 +176,7 @@ function CommentCard({
               </div>
             </div>
 
-            <p className={`${contentSpacingClass} ${bodyClass} text-slate-700 whitespace-pre-wrap`}>
+            <p className={`${contentSpacingClass} ${bodyClass} text-slate-700 dark:text-slate-300 whitespace-pre-wrap`}>
               {displayContent}
             </p>
           </div>
@@ -197,14 +197,14 @@ function CommentCard({
 
       {isReplyOpen && currentUser && (
         <div className={replyBoxOffsetClass}>
-          <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 space-y-2">
             <textarea
               value={replyDraft}
               onChange={(e) => onReplyDraftChange(e.target.value)}
               maxLength={MAX_COMMENT_LENGTH}
               rows={2}
               placeholder={`Reply to ${displayName}…`}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
+              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none"
             />
             <div className="flex items-center justify-end gap-2">
               <button
@@ -370,8 +370,8 @@ export default function ArticleContentBlock({
   return (
     <>
       {/* ── Article body ──────────────────────────────────────────────────── */}
-      <div className="prose prose-lg prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-a:text-blue-600 prose-img:rounded-xl">
-        <p className="lead text-xl text-slate-600 mb-6 font-medium">{excerpt}</p>
+      <div className="prose prose-lg prose-slate dark:prose-invert max-w-none prose-headings:font-bold prose-headings:text-slate-900 dark:prose-headings:text-slate-100 prose-a:text-blue-600 prose-img:rounded-xl">
+        <p className="lead text-xl text-slate-600 dark:text-slate-400 mb-6 font-medium">{excerpt}</p>
         {paragraphs.map((paragraph) => (
           <p key={paragraph} className="mb-6">
             {paragraph}
@@ -380,7 +380,7 @@ export default function ArticleContentBlock({
       </div>
 
       {/* ── Source + comments section ─────────────────────────────────────── */}
-      <div className="border-t border-slate-200 mt-12 pt-8 space-y-4">
+      <div className="border-t border-slate-200 dark:border-slate-700 mt-12 pt-8 space-y-4">
         <a
           href={sourceUrl}
           target="_blank"
@@ -391,7 +391,7 @@ export default function ArticleContentBlock({
           <ExternalLink className="w-4 h-4" />
         </a>
 
-        <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-slate-500" />
           Comments ({commentCount})
         </h3>
@@ -405,7 +405,7 @@ export default function ArticleContentBlock({
 
         {/* Loading */}
         {isLoading && (
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading comments...
           </div>
@@ -413,7 +413,7 @@ export default function ArticleContentBlock({
 
         {/* Empty state */}
         {!isLoading && commentTree.length === 0 && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
             Be the first to comment.
           </div>
         )}
@@ -444,7 +444,7 @@ export default function ArticleContentBlock({
 
         {/* ── Main compose box ──────────────────────────────────────────── */}
         {currentUser ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Share your thoughts</span>
               <span>{remainingChars} / {MAX_COMMENT_LENGTH}</span>
@@ -469,8 +469,8 @@ export default function ArticleContentBlock({
             </div>
           </div>
         ) : (
-          <div className="bg-slate-50 rounded-xl p-6 text-center">
-            <p className="text-slate-600 mb-4">Join the conversation. Sign in to post comments.</p>
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 text-center">
+            <p className="text-slate-600 dark:text-slate-400 mb-4">Join the conversation. Sign in to post comments.</p>
             <Link
               to="/login"
               className="inline-flex items-center justify-center px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"

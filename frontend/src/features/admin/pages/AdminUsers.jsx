@@ -74,12 +74,12 @@ export default function AdminUsers() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users"
-            className="border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm"
+            className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-300"
           />
         )}
       />
       {message ? <p className="text-sm text-green-700 mb-3">{message}</p> : null}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
         <AdminDataState
           loading={loading}
           error={error}
@@ -88,7 +88,7 @@ export default function AdminUsers() {
         />
         {!loading && !error && users.length > 0 ? (
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3 text-left">Full Name</th>
                 <th className="px-4 py-3 text-left">Email</th>
@@ -102,11 +102,11 @@ export default function AdminUsers() {
                 const role = String(user.role || '').toUpperCase();
                 const canBan = role !== 'ADMIN' && role !== 'BANNED';
                 return (
-                  <tr key={user.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-medium text-slate-900">{user.full_name || '-'}</td>
-                    <td className="px-4 py-3 text-slate-600">{user.email || '-'}</td>
+                  <tr key={user.id} className="border-t border-slate-100 dark:border-slate-700">
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{user.full_name || '-'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{user.email || '-'}</td>
                     <td className="px-4 py-3"><AdminStatusBadge value={user.role} /></td>
-                    <td className="px-4 py-3 text-slate-600">{formatDate(user.created_at)}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{formatDate(user.created_at)}</td>
                     <td className="px-4 py-3 text-right">
                             {
                               <button

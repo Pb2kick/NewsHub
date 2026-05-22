@@ -103,20 +103,20 @@ export default function AdminDashboard() {
         <>
           <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
             {cards.map((card) => (
-              <article key={card.label} className="bg-white border border-slate-200 rounded-xl p-4">
+              <article key={card.label} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-slate-500">{card.label}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{card.label}</p>
                   <div className={`w-10 h-10 rounded-lg ${card.iconBg} grid place-items-center`}>
                     <card.icon className="w-5 h-5 text-white" />
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-slate-900 mt-2">{card.value.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">{card.value.toLocaleString()}</p>
               </article>
             ))}
           </section>
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h2 className="text-base font-semibold text-slate-900 mb-3">Weekly Vote Activity</h2>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Weekly Vote Activity</h2>
               <div className="overflow-x-auto">
                 <svg width={CHART_WIDTH} height={CHART_HEIGHT} viewBox="0 0 560 200" role="img">
                   <rect x="0" y="0" width="560" height="200" fill="white" />
@@ -158,8 +158,8 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <h2 className="text-base font-semibold text-slate-900 mb-3">New User Registrations</h2>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">New User Registrations</h2>
               <div className="overflow-x-auto">
                 {/* Uses vote data as proxy — replace with registration data when API endpoint is available. */}
                 <svg width={CHART_WIDTH} height={CHART_HEIGHT} viewBox="0 0 560 200" role="img">

@@ -7,7 +7,8 @@ import * as z from 'zod';
 import { Lock, Mail, ChevronRight, Eye, EyeOff, AlertCircle, ShieldCheck, Newspaper, MapPin } from 'lucide-react';
 import newshubLogo from '../../../assets/newshub-logo.png';
 import { supabase } from '../../shared/services/supabaseClient';
-import { clearAdminViewMode } from '../hooks/useAdminViewMode';
+import ThemeToggle from '../../shared/components/ThemeToggle';
+import { completeAuthRedirect, resolveUserRole } from '../utils/completeAuthRedirect';
 
 const loginSchema = z.object({
   email: z
@@ -80,6 +81,11 @@ export default function Login() {
   const [showResendAction, setShowResendAction] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockUntil, setLockUntil] = useState(null);
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpValue, setOtpValue] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [isOtpLoading, setIsOtpLoading] = useState(false);
 
   const {
     register,
@@ -130,68 +136,99 @@ export default function Login() {
     }
 
     if (signInData?.session) {
-      setFailedAttempts(0);
-      setLockUntil(null);
-
-      const authUser = signInData.session.user;
-      let resolvedRole = '';
-
-      if (authUser?.id) {
-        const { data: userProfile, error: roleError } = await supabase
-          .from('users')
-          .select('role')
-          .eq('auth_user_id', authUser.id)
-          .maybeSingle();
-
-        if (!roleError && userProfile?.role) {
-          resolvedRole = userProfile.role;
-        }
-      }
-
-      if (!resolvedRole) {
-        // app_metadata.role can be set once per admin user via the Supabase dashboard or admin API — see migration notes.
-        const metaRole = authUser?.app_metadata?.role || authUser?.user_metadata?.role;
-        if (metaRole) {
-          resolvedRole = metaRole;
-        }
-      }
-
-      if (!resolvedRole && authUser?.email) {
-        const { data: userProfileByEmail, error: emailError } = await supabase
-          .from('users')
-          .select('role')
-          .eq('email', authUser.email)
-          .maybeSingle();
-
-        if (!emailError && userProfileByEmail?.role) {
-          resolvedRole = userProfileByEmail.role;
-        } else {
-          console.warn('Role lookup failed after fallback.', {
-            userId: authUser?.id || 'unknown',
-            email: authUser?.email || 'unknown',
-          });
-        }
-      }
-
-      const normalizedRole = String(resolvedRole || '').trim().toUpperCase();
+      // 2FA via Supabase email OTP. The password session is immediately invalidated
+      // and a one-time code is sent. Only verifyOtp() creates the real session used for navigation.
+      const normalizedRole = await resolveUserRole(signInData.session.user);
       if (normalizedRole === 'BANNED') {
         await supabase.auth.signOut();
         setServerError('This account has been suspended. Please contact support.');
         setIsLoading(false);
         return;
       }
-      const redirectPath = normalizedRole === 'ADMIN' ? '/admin' : '/home';
 
-      if (redirectPath !== '/admin') {
-        clearAdminViewMode();
+      await supabase.auth.signOut();
+
+      const normalizedEmail = data.email.trim().toLowerCase();
+      const { error: otpSendError } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: { shouldCreateUser: false },
+      });
+
+      if (otpSendError) {
+        setServerError(otpSendError.message || 'Unable to send verification code. Please try again.');
+        setIsLoading(false);
+        return;
       }
 
-      navigate(redirectPath, { replace: true });
+      setFailedAttempts(0);
+      setLockUntil(null);
+      setOtpEmail(normalizedEmail);
+      setOtpStep(true);
+      setOtpValue('');
+      setOtpError('');
+      setInfoMessage(`We sent a 6-digit code to ${normalizedEmail}. Enter it below to complete sign-in.`);
+      setIsLoading(false);
       return;
     }
 
     setServerError('Sign in did not complete. Please try again.');
     setIsLoading(false);
+  };
+
+  const handleOtpSubmit = async (event) => {
+    event.preventDefault();
+
+    if (lockUntil && Date.now() < lockUntil) {
+      const secondsLeft = Math.ceil((lockUntil - Date.now()) / 1000);
+      setOtpError(`Too many login attempts. Try again in ${secondsLeft} seconds.`);
+      return;
+    }
+
+    setIsOtpLoading(true);
+    setOtpError('');
+    setServerError(null);
+
+    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+      email: otpEmail,
+      token: otpValue.trim(),
+      type: 'email',
+    });
+
+    if (verifyError || !verifyData?.session) {
+      setOtpError('Invalid or expired code. Please try again.');
+      setOtpValue('');
+      setIsOtpLoading(false);
+      return;
+    }
+
+    const result = await completeAuthRedirect(verifyData.session, navigate);
+    if (result === 'banned') {
+      setOtpStep(false);
+      setServerError('This account has been suspended. Please contact support.');
+    }
+    setIsOtpLoading(false);
+  };
+
+  const handleResendOtp = async () => {
+    setOtpError('');
+    setOtpValue('');
+    const { error: resendError } = await supabase.auth.signInWithOtp({
+      email: otpEmail,
+      options: { shouldCreateUser: false },
+    });
+    if (resendError) {
+      setOtpError(resendError.message || 'Unable to resend code.');
+    } else {
+      setInfoMessage(`A new code was sent to ${otpEmail}.`);
+    }
+  };
+
+  const handleBackToSignIn = () => {
+    setOtpStep(false);
+    setOtpEmail('');
+    setOtpValue('');
+    setOtpError('');
+    setInfoMessage('');
   };
 
   const handleResendConfirmation = async () => {
@@ -229,11 +266,11 @@ export default function Login() {
   // ── Shared input class matching main-app style ────────────────────────────
   const inputBase =
     'block w-full rounded-lg border py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-colors focus:outline-none focus:ring-2';
-  const inputNormal = `${inputBase} border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-200`;
+  const inputNormal = `${inputBase} border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-200`;
   const inputError  = `${inputBase} border-red-300 bg-red-50 focus:border-red-400 focus:ring-red-100 text-red-900`;
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-800">
 
       {/* ── Left civic panel (desktop only) ──────────────────────────────── */}
       <div
@@ -306,7 +343,11 @@ export default function Login() {
       </div>
 
       {/* ── Right: form panel ────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 lg:px-16 bg-white">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 lg:px-16 bg-white dark:bg-slate-900 relative">
+
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+          <ThemeToggle />
+        </div>
 
         {/* Mobile logo — hidden on desktop where left panel shows */}
         <div className="flex lg:hidden justify-center mb-8">
@@ -317,8 +358,14 @@ export default function Login() {
 
           {/* Heading */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-900">Sign in to NewsHub</h2>
-            <p className="mt-1.5 text-sm text-slate-500">The official civic platform for election voting</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+              {otpStep ? 'Enter verification code' : 'Sign in to NewsHub'}
+            </h2>
+            <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+              {otpStep
+                ? `We sent a 6-digit code to ${otpEmail}. Enter it below to complete sign-in.`
+                : 'The official civic platform for election voting'}
+            </p>
           </div>
 
           {/* Server error */}
@@ -348,11 +395,62 @@ export default function Login() {
             </div>
           )}
 
+          {otpStep ? (
+            <form className="space-y-5" onSubmit={handleOtpSubmit} noValidate>
+              {otpError ? (
+                <p className="text-sm text-rose-600 font-medium">{otpError}</p>
+              ) : null}
+              <div>
+                <label htmlFor="otp" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  6-digit code
+                </label>
+                <input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={otpValue}
+                  onChange={(event) => setOtpValue(event.target.value.replace(/\D/g, ''))}
+                  className={`${inputNormal} text-center tracking-widest text-lg`}
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isOtpLoading || otpValue.trim().length < 6}
+                className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                {isOtpLoading ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                ) : (
+                  'Verify and sign in'
+                )}
+              </button>
+              <div className="flex flex-col items-center gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                >
+                  Resend code
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBackToSignIn}
+                  className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            </form>
+          ) : (
           <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
 
             {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Email address
               </label>
               <div className="relative">
@@ -374,7 +472,7 @@ export default function Login() {
             {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+                <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                   Password
                 </label>
                 <a
@@ -421,13 +519,16 @@ export default function Login() {
               )}
             </button>
           </form>
+          )}
 
-          <p className="mt-6 text-center text-sm text-slate-500">
+          {!otpStep ? (
+          <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
             Don't have an account?{' '}
             <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
               Register to vote
             </Link>
           </p>
+          ) : null}
         </div>
       </div>
     </div>

@@ -18,6 +18,7 @@ import {
   AdminUsers,
 } from './features/admin';
 import { supabase } from './features/shared';
+import { ThemeProvider } from './features/shared/context/ThemeContext';
 import { NotificationsProvider } from './features/news/context/NotificationsContext';
 
 const PUBLIC_PATHS = new Set(['/', '/login', '/register', '/email-confirmed']);
@@ -112,6 +113,7 @@ function App() {
   }, []);
 
   return (
+    <ThemeProvider>
     <Router>
       <div className="App">
         <NotificationsGate>
@@ -143,6 +145,7 @@ function App() {
         </NotificationsGate>
       </div>
     </Router>
+    </ThemeProvider>
   );
 }
 

@@ -137,12 +137,12 @@ export default function AdminVerifications() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search"
-                className="border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm bg-white"
+                className="border border-slate-200 dark:border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300"
               />
             </div>
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              className="inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
               // TODO: Wire up filter drawer when filters are defined.
             >
               <Filter className="w-4 h-4" />
@@ -153,11 +153,11 @@ export default function AdminVerifications() {
 
       {message ? <p className={`text-sm mb-3 ${decisionOutcome === 'APPROVED' ? 'text-green-700' : 'text-red-600'}`}>{message}</p> : null}
 
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
         <AdminDataState loading={loading} error={error} isEmpty={!loading && !error && (data || []).length === 0} emptyText="No verification requests found. If submissions have been made, check that the admin_select_all RLS policy exists on the verifications table in your Supabase project under Authentication → Policies." />
         {!loading && !error && (data || []).length > 0 ? (
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-3 text-left">User</th>
                 <th className="px-4 py-3 text-left">Type</th>
@@ -169,24 +169,24 @@ export default function AdminVerifications() {
             </thead>
             <tbody>
               {(data || []).map((item) => (
-                <tr key={item.id} className="border-t border-slate-100">
+                <tr key={item.id} className="border-t border-slate-100 dark:border-slate-700">
                   <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{item.full_name || 'Unknown'}</p>
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">{item.full_name || 'Unknown'}</p>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                     {/* Type is derived client-side — add a type column to the DB for real classification. */}
                     {String(item.national_id_number || '').trim().toUpperCase().startsWith('C')
                       ? 'Candidate Registration'
                       : 'Voter ID'}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                     {/* Document label is a placeholder — store document_type in the DB. */}
                     <div className="inline-flex items-center gap-2">
                       <span className="w-4 h-4 rounded bg-slate-200" aria-hidden="true" />
                       ID Document
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                     {item.submitted_at ? formatRelativeTime(item.submitted_at) : 'N/A'}
                   </td>
                   <td className="px-4 py-3"><AdminStatusBadge value={item.status} /></td>

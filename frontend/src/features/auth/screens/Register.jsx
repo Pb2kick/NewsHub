@@ -18,6 +18,18 @@ import {
   MapPin,
 } from 'lucide-react';
 import { supabase } from '../../shared/services/supabaseClient';
+import ThemeToggle from '../../shared/components/ThemeToggle';
+import { getEmailConfirmedRedirectUrl } from '../../shared/utils/siteUrl';
+
+/*
+ * SUPABASE DASHBOARD — Authentication → URL Configuration (required for email confirm):
+ * 1. Set "Site URL" to: https://newshub-s1dh.onrender.com
+ *    (and http://localhost:3000 when testing locally)
+ * 2. Add Redirect URL: https://newshub-s1dh.onrender.com/email-confirmed
+ * 3. Add Redirect URL: http://localhost:3000/email-confirmed
+ * 4. Add Redirect URL: https://newshub-s1dh.onrender.com/*
+ * Without step 2+, Supabase blocks emailRedirectTo even when the code is correct.
+ */
 
 const registerSchema = z
   .object({
@@ -93,7 +105,7 @@ function mapRegisterError(message = '') {
 // ── Shared input class matching main-app style ──────────────────────────────
 const inputBase =
   'block w-full rounded-lg border py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-colors focus:outline-none focus:ring-2';
-const inputNormal = `${inputBase} border-slate-200 bg-white focus:border-blue-500 focus:ring-blue-200`;
+const inputNormal = `${inputBase} border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-200`;
 const inputError  = `${inputBase} border-red-300 bg-red-50 focus:border-red-400 focus:ring-red-100 text-red-900`;
 
 export default function Register() {
@@ -127,10 +139,14 @@ export default function Register() {
     const firstName = nameParts[0] || '';
     const lastName = nameParts.slice(1).join(' ');
 
+    // emailRedirectTo must match a URL in Supabase Auth → URL Configuration → Redirect URLs allowlist.
+    const emailRedirectTo = getEmailConfirmedRedirectUrl();
+
     const { data, error } = await supabase.auth.signUp({
       email: normalizedEmail,
       password: formData.password,
       options: {
+        emailRedirectTo,
         data: {
           full_name: normalizedFullName,
           first_name: firstName,
@@ -173,14 +189,14 @@ export default function Register() {
   // ── Success screen ──────────────────────────────────────────────────────
   if (isSuccess) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 max-w-sm w-full text-center space-y-5">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-800 px-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm p-10 max-w-sm w-full text-center space-y-5">
           <div className="mx-auto w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
             <CheckCircle2 className="h-8 w-8 text-green-600" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Registration Complete</h2>
-            <p className="mt-1.5 text-sm text-slate-500">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Registration Complete</h2>
+            <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
               Your voter profile has been securely created. Redirecting to login…
             </p>
           </div>
@@ -193,7 +209,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-800">
 
       {/* ── Left civic panel (desktop only) ──────────────────────────────── */}
       <div
@@ -268,7 +284,11 @@ export default function Register() {
       </div>
 
       {/* ── Right: form panel ────────────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10 lg:px-16 bg-white overflow-y-auto">
+      <div className="flex flex-1 flex-col justify-center px-6 py-10 sm:px-10 lg:px-16 bg-white dark:bg-slate-900 overflow-y-auto relative">
+
+        <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+          <ThemeToggle />
+        </div>
 
         <div className="w-full max-w-sm mx-auto">
 
@@ -283,8 +303,8 @@ export default function Register() {
 
           {/* Heading */}
           <div className="mb-6">
-            <h2 className="text-2xl font-bold text-slate-900">Voter Registration</h2>
-            <p className="mt-1.5 text-sm text-slate-500">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Voter Registration</h2>
+            <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
               Create your civic identity to participate in elections.
             </p>
           </div>
@@ -308,7 +328,7 @@ export default function Register() {
 
             {/* Full Name */}
             <div>
-              <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label htmlFor="fullName" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Legal Full Name
               </label>
               <div className="relative">
@@ -330,7 +350,7 @@ export default function Register() {
 
             {/* Email */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Email address
               </label>
               <div className="relative">
@@ -351,7 +371,7 @@ export default function Register() {
 
             {/* Password */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -372,7 +392,7 @@ export default function Register() {
 
             {/* Confirm Password */}
             <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700 mb-1.5">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                 Confirm Password
               </label>
               <div className="relative">
@@ -407,10 +427,10 @@ export default function Register() {
                 className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
               />
               <div className="text-sm">
-                <label htmlFor="attestation" className="font-medium text-slate-700 cursor-pointer">
+                <label htmlFor="attestation" className="font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
                   Eligibility Attestation
                 </label>
-                <p className="text-slate-500 text-xs mt-0.5">
+                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
                   I swear or affirm under penalty of perjury that I am a citizen eligible to vote, and the information provided is true.
                 </p>
                 {errors.attestation && (

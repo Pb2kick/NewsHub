@@ -4,6 +4,7 @@ import { ExternalLink, Flag, LayoutDashboard, Menu, Newspaper, ShieldCheck, User
 import { supabase } from '../../shared/services/supabaseClient';
 import { clearAdminViewMode } from '../../auth/hooks/useAdminViewMode';
 import { getCurrentAdminProfile } from '../services/adminApi';
+import ThemeToggle from '../../shared/components/ThemeToggle';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
@@ -82,7 +83,7 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-800 flex">
       <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white transform ${isOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 transition-transform`}>
         <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between">
           <Link to="/admin" className="flex items-center gap-2 font-bold">
@@ -103,30 +104,31 @@ export default function AdminLayout() {
       </aside>
 
       <div className="flex-1 min-w-0">
-        <header className="h-16 bg-white border-b border-slate-200 px-4 flex items-center justify-between">
-          <button type="button" onClick={() => setIsOpen(true)} className="lg:hidden p-2 rounded hover:bg-slate-100"><Menu className="w-5 h-5" /></button>
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 flex items-center justify-between">
+          <button type="button" onClick={() => setIsOpen(true)} className="lg:hidden p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800"><Menu className="w-5 h-5 dark:text-slate-300" /></button>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <ThemeToggle />
             <Link
               to="/home?adminView=1"
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
             >
               <ExternalLink className="w-4 h-4" />
               View Website
             </Link>
             <Link
               to="/profile?fromAdmin=1"
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
             >
               <User className="w-4 h-4" />
               Profile
             </Link>
-            <p className="text-sm font-semibold text-slate-700">{adminName}</p>
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{adminName}</p>
             <div className="w-9 h-9 rounded-full bg-blue-600 text-white text-sm font-bold grid place-items-center">
               {adminInitials}
             </div>
           </div>
         </header>
-        <main className="p-4 sm:p-6 lg:p-8"><Outlet /></main>
+        <main className="p-4 sm:p-6 lg:p-8 bg-slate-50 dark:bg-slate-800 min-h-[calc(100vh-4rem)]"><Outlet /></main>
       </div>
 
       {isOpen ? <button type="button" className="fixed inset-0 bg-black/40 lg:hidden" onClick={() => setIsOpen(false)} aria-label="Close sidebar" /> : null}
