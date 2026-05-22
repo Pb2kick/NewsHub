@@ -118,11 +118,15 @@ export function useNotifications(currentUserId) {
     }
   }, [currentUserId]);
 
-  const deleteNotification = useCallback(async (id) => {
-    const snapshot = notifications;
-
+  const deleteNotification = useCallback(async (id) => { // CHANGED: empty dep array below
     // Optimistic: remove immediately before the network round-trip.
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    // Functional updater always receives latest state — no snapshot needed.  // NEW
+    let removedItem = null; // NEW: captured synchronously inside the updater below
+
+    setNotifications((prev) => { // CHANGED: capture removedItem inside updater
+      removedItem = prev.find((n) => n.id === id) || null; // NEW
+      return prev.filter((n) => n.id !== id); // CHANGED: same filter, now inside updater
+    });
 
     const { error } = await supabase
       .from('notifications')
@@ -130,10 +134,22 @@ export function useNotifications(currentUserId) {
       .eq('id', id);
 
     if (error) {
-      setNotifications(snapshot);
+      // Revert: re-insert the removed item at the correct position using a  // NEW
+      // functional updater so we always see the latest array, not a stale   // NEW
+      // snapshot captured at render time.                                   // NEW
+      if (removedItem) { // NEW
+        setNotifications((prev) => { // NEW
+          // Re-insert in created_at descending order (newest first).        // NEW
+          const next = [...prev, removedItem].sort( // NEW
+            (a, b) => new Date(b.created_at) - new Date(a.created_at) // NEW
+          ); // NEW
+          return next; // NEW
+        }); // NEW
+      } // NEW
       console.warn('deleteNotification failed:', error.message);
     }
-  }, [notifications]);
+  }, []); // CHANGED: empty deps — only writes via functional updaters, never reads notifications closure
+
 
   // ── unreadCount — DERIVED, never stored as separate state ────────────────
   // Keeping this as a memo over `notifications` ensures it updates instantly
