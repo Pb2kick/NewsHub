@@ -1,0 +1,38 @@
+NewsHub — Supabase Email Template: 6-digit OTP (not Magic Link)
+================================================================
+
+Problem
+-------
+signInWithOtp() sends whichever body is configured under Authentication →
+Email Templates → "Magic Link". The default template uses {{ .ConfirmationURL }},
+which renders a clickable login link. The API does not choose link vs code;
+the template does.
+
+Fix (dashboard only — no frontend code change)
+----------------------------------------------
+1. Open Supabase Dashboard → Authentication → Email Templates.
+2. Select the "Magic Link" template.
+3. Set Subject to:
+
+   Your NewsHub verification code
+
+4. Replace the entire body (HTML) with:
+
+   <h2>NewsHub Sign-In Code</h2>
+   <p>Your one-time verification code is:</p>
+   <h1 style="letter-spacing: 8px; font-size: 36px; font-weight: bold;">
+     {{ .Token }}
+   </h1>
+   <p>This code expires in 10 minutes. Do not share it with anyone.</p>
+   <p>If you did not request this, you can safely ignore this email.</p>
+
+5. Click Save.
+
+6. Test: sign in as a non-admin user → inbox should show a 6-digit code,
+   not a "Log In" hyperlink.
+
+Notes
+-----
+- Use {{ .Token }} exactly (Go template syntax). Do not use ${token} or {token}.
+- Non-admin Login.jsx flow calls verifyOtp({ type: 'email', token: ... }).
+- Admins skip OTP entirely (see Login.jsx ADMIN BYPASS).

@@ -136,8 +136,7 @@ export default function Login() {
     }
 
     if (signInData?.session) {
-      // 2FA via Supabase email OTP. The password session is immediately invalidated
-      // and a one-time code is sent. Only verifyOtp() creates the real session used for navigation.
+      // 2FA via Supabase email OTP for non-admin users. Admins bypass OTP below.
       const normalizedRole = await resolveUserRole(signInData.session.user);
       if (normalizedRole === 'BANNED') {
         await supabase.auth.signOut();
@@ -146,9 +145,24 @@ export default function Login() {
         return;
       }
 
+      // ADMIN BYPASS — admins skip OTP and use the password session directly
+      if (normalizedRole === 'ADMIN') {
+        const result = await completeAuthRedirect(signInData.session, navigate);
+        if (result === 'banned') {
+          await supabase.auth.signOut();
+          setServerError('This account has been suspended.');
+        }
+        setIsLoading(false);
+        return;
+      }
+
       await supabase.auth.signOut();
 
       const normalizedEmail = data.email.trim().toLowerCase();
+      // Supabase Magic Link template must display {{ .Token }} as a typed
+      // code — NOT {{ .ConfirmationURL }}. Change in:
+      // Auth → Email Templates → Magic Link → replace body with OTP template.
+      // See: db/migrations/supabase_email_template_instructions.txt
       const { error: otpSendError } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: { shouldCreateUser: false },
