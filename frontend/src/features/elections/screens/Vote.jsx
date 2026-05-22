@@ -44,8 +44,21 @@ export default function Vote() {
 
       const userPromise = supabase.auth.getUser().then(async (result) => {
         const user = result?.data?.user || null;
-        const hasVoted = user?.id ? await checkHasVoted(user.id, electionId) : false;
-        return { user, hasVoted };
+
+        // NEW: resolve numeric public.users.id from the auth UUID.
+        // votes.user_id is bigint (references public.users.id), NOT auth.users.id (uuid).
+        // maybeSingle() avoids throwing when the public.users row is missing.
+        const numericId = user?.id ? await supabase // NEW
+          .from('users')                            // NEW
+          .select('id')                             // NEW
+          .eq('auth_user_id', user.id)              // NEW: auth_user_id is the uuid link column
+          .maybeSingle()                            // NEW
+          .then(({ data: publicUser }) => publicUser?.id ?? null) // NEW
+          : null; // NEW
+
+        // CHANGED: pass numericId — votes.user_id is bigint, not uuid.
+        const hasVoted = numericId !== null ? await checkHasVoted(numericId, electionId) : false; // CHANGED
+        return { user, hasVoted, numericUserId: numericId }; // CHANGED: expose numericUserId
       });
       const electionPromise = getElectionById(electionId);
       const candidatesPromise = getCandidatesByElectionId(electionId);
@@ -62,7 +75,9 @@ export default function Vote() {
 
       const user = userResult?.user || null;
       const hasVoted = Boolean(userResult?.hasVoted);
-      setUserId(user?.id || '');
+      // CHANGED: use numeric public.users.id — votes.user_id is bigint.
+      // user?.id is the auth UUID which is incompatible with the bigint column type.
+      setUserId(userResult?.numericUserId ?? ''); // CHANGED
 
       if (!electionData) {
         setElection(null);
