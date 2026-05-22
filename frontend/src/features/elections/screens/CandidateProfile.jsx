@@ -2,11 +2,13 @@
  * Changes:
  * - Load candidate details from Supabase and add loading/not-found states.
  * - Keep verification gating while adding image fallbacks and hiding empty stats.
+ * - Added Report this candidate button and ReportModal.
  */
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Loader2, ShieldCheck, ThumbsUp, User } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Flag, Loader2, ShieldCheck, ThumbsUp, User } from 'lucide-react';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
+import ReportModal from '../../shared/components/ReportModal';
 import { NEWS_CATEGORY_ELECTIONS } from '../../shared/constants/newsCategories';
 import { getMyVerification } from '../../admin/services/adminApi';
 import { getCandidateById } from '../services/electionsApi';
@@ -19,6 +21,7 @@ export default function CandidateProfile() {
   const { candidateId, electionId } = useParams();
   const navigate = useNavigate();
   const [verifyModal, setVerifyModal] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [checkingVerification, setCheckingVerification] = useState(false);
   const [candidate, setCandidate] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,6 +118,16 @@ export default function CandidateProfile() {
                 Vote for {candidate.name.split(' ')[0]}
               </button>
               <p className="text-xs text-slate-400 mt-4 flex items-center justify-center gap-1"><ShieldCheck className="w-3 h-3" />Verified Candidate</p>
+              <div className="border-t border-slate-100 pt-3 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setReportOpen(true)}
+                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 transition-colors mx-auto"
+                >
+                  <Flag className="w-3.5 h-3.5" />
+                  Report this candidate
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -188,6 +201,14 @@ export default function CandidateProfile() {
           </div>
         </div>
       )}
+
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="candidate"
+        targetId={String(candidate?.id ?? '')}
+        targetLabel={candidate?.name ?? 'this candidate'}
+      />
     </AuthenticatedPageShell>
   );
 }

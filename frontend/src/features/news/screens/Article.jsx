@@ -1,10 +1,15 @@
-import React from 'react';
+/*
+ * Changes:
+ * - Added Report button in article header wrapper and ReportModal for news targets.
+ */
+import React, { useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Flag } from 'lucide-react';
 import ArticleContentBlock from '../components/ArticleContentBlock';
 import ArticleHeaderBlock from '../components/ArticleHeaderBlock';
 import ArticleRelatedSection from '../components/ArticleRelatedSection';
 import AuthenticatedPageShell from '../../shared/components/AuthenticatedPageShell';
+import ReportModal from '../../shared/components/ReportModal';
 import { useArticleDetails } from '../hooks/useArticleDetails';
 import { NEWS_CATEGORY_TOP_STORIES } from '../../shared/constants/newsCategories';
 
@@ -15,6 +20,7 @@ import { NEWS_CATEGORY_TOP_STORIES } from '../../shared/constants/newsCategories
 export default function Article() {
   const { id } = useParams();
   const routeContext = useLocation();
+  const [reportOpen, setReportOpen] = useState(false);
   const { isLoading, displayArticle, relatedArticles, articleParagraphs, originalSourceUrl } = useArticleDetails({
     id,
     routeArticle: routeContext.state?.article,
@@ -55,12 +61,31 @@ export default function Article() {
         </Link>
 
         <div className="max-w-4xl">
-          <ArticleHeaderBlock article={displayArticle} />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              className="absolute top-0 right-0 z-10 flex items-center gap-1 text-xs text-slate-400 hover:text-rose-500 transition-colors"
+              title="Report this article"
+            >
+              <Flag className="w-3.5 h-3.5" />
+              Report
+            </button>
+            <ArticleHeaderBlock article={displayArticle} />
+          </div>
           <ArticleContentBlock articleId={displayArticle.id} articleTitle={displayArticle.title || ''} article={displayArticle} excerpt={displayArticle.excerpt} paragraphs={articleParagraphs} sourceUrl={originalSourceUrl} />
 
           <ArticleRelatedSection relatedArticles={relatedArticles} />
         </div>
       </div>
+
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        targetType="news"
+        targetId={String(displayArticle?.id ?? '')}
+        targetLabel={displayArticle?.title ?? 'this article'}
+      />
     </AuthenticatedPageShell>
   );
 }

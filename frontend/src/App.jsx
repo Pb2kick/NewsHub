@@ -14,6 +14,7 @@ import {
   AdminElections,
   AdminCandidates,
   AdminNews,
+  AdminReports,
   AdminUsers,
 } from './features/admin';
 import { supabase } from './features/shared';
@@ -133,6 +134,7 @@ function App() {
               <Route path="candidates" element={<AdminCandidates />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="news" element={<AdminNews />} />
+              <Route path="reports" element={<AdminReports />} />
             </Route>
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/email-confirmed" element={<EmailConfirmed />} />

@@ -5,4 +5,5 @@ export { default as AdminVerificationDetail } from './pages/AdminVerificationDet
 export { default as AdminElections } from './pages/AdminElections';
 export { default as AdminCandidates } from './pages/AdminCandidates';
 export { default as AdminNews } from './pages/AdminNews';
+export { default as AdminReports } from './pages/AdminReports';
 export { default as AdminUsers } from './pages/AdminUsers';
