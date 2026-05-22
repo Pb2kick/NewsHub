@@ -24,10 +24,10 @@ const loginSchema = z.object({
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_MS = 30 * 1000;
-const RESEND_COOLDOWN_SECONDS = 60;
+const RESEND_COOLDOWN_SECONDS = 20;
 
 const EMAIL_RATE_LIMIT_MESSAGE =
-  'Email rate limit reached. Please wait 60 seconds before trying again, or contact support if this persists.';
+  'Email rate limit reached. Please wait 20 seconds before trying again, or contact support if this persists.';
 
 /**
  * Detects Supabase auth email rate-limit responses (429 / "email rate limit exceeded").
