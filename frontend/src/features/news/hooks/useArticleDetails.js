@@ -38,48 +38,50 @@ export function useArticleDetails({ id, routeArticle }) {
   useEffect(() => {
     const abortController = new AbortController();
 
-    /** Loads location-scoped article feed and replaces stale article state. */
+    /**
+     * Loads related articles from the user's current feed. Runs in the
+     * background so the article itself never waits on it.
+     */
+    async function loadRelated() {
+      const { request } = getPersistedNewsLocationContext();
+      if (!request.country || !request.area) {
+        return;
+      }
+      try {
+        const feed = await fetchNewsByLocation({ ...request, page: 0, size: 8, signal: abortController.signal });
+        if (!abortController.signal.aborted) {
+          setAllArticles(feed.items);
+        }
+      } catch {
+        // Related articles are optional.
+      }
+    }
+
+    /**
+     * Shows the article passed through navigation state when there is one
+     * (search results, feed cards); otherwise fetches it by id, which covers
+     * page refreshes, shared links and notifications.
+     */
     async function loadArticles() {
       setIsLoading(true);
       setAllArticles([]);
       setArticle(null);
       setResolvedContent('');
+      loadRelated();
 
-      // If the article was passed via navigation state (e.g. from GlobalSearchDropdown),
-      // use it directly without hitting the location feed. The location feed is scoped
-      // to the current region and may not contain search results from other regions.
       if (routeArticle) {
         setArticle(routeArticle);
         setIsLoading(false);
         return;
       }
 
-      const locationContext = getPersistedNewsLocationContext();
-
       try {
-        const rows = await fetchNewsByLocation({ ...locationContext.request, signal: abortController.signal });
+        const direct = id ? await fetchArticleById({ id, signal: abortController.signal }) : null;
         if (!abortController.signal.aborted) {
-          setAllArticles(rows);
-          const selected = rows.find((item) => String(item.id) === String(id));
-
-          if (selected) {
-            // Article found in the location-scoped feed (normal case).
-            setArticle(selected);
-          } else if (id) {
-            // Article not in the current location feed — this happens when the user
-            // navigates from a notification pointing to an article from a different
-            // location. Attempt a direct ID fetch as a fallback.
-            const direct = await fetchArticleById({ id, signal: abortController.signal });
-            if (!abortController.signal.aborted) {
-              setArticle(direct || rows[0] || null);
-            }
-          } else {
-            setArticle(rows[0] || null);
-          }
+          setArticle(direct);
         }
       } catch {
         if (!abortController.signal.aborted) {
-          setAllArticles([]);
           setArticle(null);
         }
       } finally {

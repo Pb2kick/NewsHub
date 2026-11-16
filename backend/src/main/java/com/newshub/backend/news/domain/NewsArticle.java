@@ -46,6 +46,15 @@ public class NewsArticle {
         @Column(name = "user_id")
         private Long userId;
 
+        /**
+         * When the live feed last returned this article for its scope. Used to
+         * decide whether a scope needs a refresh; publishedAt cannot be used for
+         * that because it says nothing about when we last checked the feed.
+         * Nullable so existing rows stay valid (Hibernate adds the column).
+         */
+        @Column(name = "fetched_at")
+        private LocalDateTime fetchedAt;
+
         public NewsArticle() {
         }
 
@@ -148,5 +157,13 @@ public class NewsArticle {
 
         public void setUserId(Long userId) {
                 this.userId = userId;
+        }
+
+        public LocalDateTime getFetchedAt() {
+                return fetchedAt;
+        }
+
+        public void setFetchedAt(LocalDateTime fetchedAt) {
+                this.fetchedAt = fetchedAt;
         }
 }

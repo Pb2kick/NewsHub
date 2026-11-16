@@ -8,7 +8,18 @@ import NewsImage from './NewsImage';
  * @param {object} props
  * @returns {JSX.Element}
  */
-export default function HomeHeroSection({ showInitialNewsLoading, featuredArticle, hasImage }) {
+export default function HomeHeroSection({ showInitialNewsLoading, featuredArticle, hasImage, needsManualLocation = false }) {
+  if (needsManualLocation) {
+    return (
+      <section className="mb-6 sm:mb-12">
+        <div className="rounded-xl sm:rounded-2xl border border-amber-200 bg-amber-50 dark:bg-slate-900 dark:border-amber-700 p-8 text-center text-slate-700 dark:text-slate-200">
+          <p className="font-semibold">We couldn&rsquo;t detect your location.</p>
+          <p className="mt-1 text-sm">Search for your city in the location box at the top of the page to see local news.</p>
+        </div>
+      </section>
+    );
+  }
+
   if (showInitialNewsLoading) {
     return (
       <section className="mb-6 sm:mb-12 animate-pulse">

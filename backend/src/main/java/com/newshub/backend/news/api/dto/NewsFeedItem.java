@@ -13,6 +13,8 @@ public record NewsFeedItem(
         String image,
         String sourceType,
         String sourceUrl,
-        String publisherImage
+        String publisherImage,
+        /* ISO-8601 instant (e.g. 2026-11-16T08:30:00Z) so ordering keeps the time of day. */
+        String publishedAt
 ) {
 }

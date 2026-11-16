@@ -27,8 +27,10 @@ export default function HomeNewsGrid(props) {
     showInitialNewsLoading,
     otherArticles,
     hasImage,
-    // BUG 5e FIX: true while GPS/country hasn't resolved — show detecting spinner
+    // true while detection runs and no location is known — show detecting spinner
     isLocationPending = false,
+    // detection failed and nothing is remembered — the hero explains, hide the stale label
+    needsManualLocation = false,
     // Pagination props
     hasMore = false,
     isLoadingMore = false,
@@ -64,7 +66,7 @@ export default function HomeNewsGrid(props) {
               : isDetecting ? 'Detecting location...'
               : isNewsLoading ? `Fetching ${selectedLocation} news...`
               : `Location: ${selectedLocation}`}
-            {!isLocationPending && locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
+            {!isLocationPending && !needsManualLocation && locationLabel && <span className="ml-2 text-slate-400">({locationLabel})</span>}
           </div>
           {locationError && !isDetecting && !isLocationPending && <span className="text-xs text-amber-600">{locationError}</span>}
           {newsError && !isNewsLoading && !isLocationPending && <span className="text-xs text-amber-600">{newsError}</span>}

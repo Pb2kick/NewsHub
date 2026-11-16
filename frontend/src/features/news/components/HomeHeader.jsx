@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
@@ -6,6 +6,28 @@ import GlobalSearchDropdown from './GlobalSearchDropdown';
 import NotificationBell from './NotificationBell';
 import ThemeToggle from '../../shared/components/ThemeToggle';
 import newshubLogo from '../../../assets/newshub-logo.png';
+
+/**
+ * Tracks a CSS media query so JS can mount only the layout that is visible.
+ * @param {string} query
+ * @returns {boolean}
+ */
+function useMediaQuery(query) {
+  const getMatch = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia(query).matches;
+  const [matches, setMatches] = useState(getMatch);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia(query);
+    const onChange = () => setMatches(media.matches);
+    onChange();
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [query]);
+
+  return matches;
+}
 
 /**
  * Renders the fixed top header and category navigation.
@@ -55,6 +77,10 @@ export default function HomeHeader(props) {
     deleteNotification, // CHANGED: accept deleteNotification prop and forward
   } = props;
 
+  // Only one results dropdown may be mounted: the desktop and mobile inputs are
+  // both in the DOM (one hidden by CSS), and mounting both sent every search twice.
+  const isWideScreen = useMediaQuery('(min-width: 768px)');
+
   function handleSearchChange(event) {
     const value = event.target.value;
     if (setSearchQuery) setSearchQuery(value);
@@ -91,7 +117,7 @@ export default function HomeHeader(props) {
               autoComplete="off"
               className="w-full h-11 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-10 pr-4 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
-            {isSearchOpen && (
+            {isSearchOpen && isWideScreen && (
               <GlobalSearchDropdown
                 query={searchQuery}
                 onClose={handleCloseDropdown}
@@ -175,7 +201,7 @@ export default function HomeHeader(props) {
               autoComplete="off"
               className="w-full h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-10 pr-3 text-sm text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
-            {isSearchOpen && (
+            {isSearchOpen && !isWideScreen && (
               <GlobalSearchDropdown
                 query={searchQuery}
                 onClose={handleCloseDropdown}
@@ -183,6 +209,18 @@ export default function HomeHeader(props) {
               />
             )}
           </div>
+        </div>
+
+        {/* Location setter for phones and tablets (the header one only fits from lg up). */}
+        <div className="lg:hidden pb-3">
+          <HeaderLocationSearch
+            variant="compact"
+            currentLabel={userLocationDisplayLabel}
+            isDetecting={isDetecting}
+            isUsingCurrentLocation={isUsingCurrentLocation}
+            onSelectLocation={setUserLocationFromSearch}
+            onUseCurrentLocation={useCurrentUserLocation}
+          />
         </div>
 
         <div className="h-12 border-t border-slate-100 dark:border-slate-700 flex items-center overflow-x-auto no-scrollbar">

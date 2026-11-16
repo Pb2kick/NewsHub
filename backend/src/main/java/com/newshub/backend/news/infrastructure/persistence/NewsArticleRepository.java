@@ -78,9 +78,9 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
      */
     @Query("""
         select n from NewsArticle n
-        where lower(n.title)   like concat('%', lower(:keyword), '%')
-           or lower(n.summary) like concat('%', lower(:keyword), '%')
-           or lower(n.content) like concat('%', lower(:keyword), '%')
+        where lower(n.title)   like concat('%', lower(:keyword), '%') escape '\\'
+           or lower(n.summary) like concat('%', lower(:keyword), '%') escape '\\'
+           or lower(n.content) like concat('%', lower(:keyword), '%') escape '\\'
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeyword(@Param("keyword") String keyword,
@@ -102,11 +102,12 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
         select n from NewsArticle n
         where (
-            lower(n.title)   like concat('%', lower(:keyword), '%')
-         or lower(n.summary) like concat('%', lower(:keyword), '%')
-         or lower(n.content) like concat('%', lower(:keyword), '%')
+            lower(n.title)   like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.summary) like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.content) like concat('%', lower(:keyword), '%') escape '\\'
         )
         and lower(n.region) = lower(:area)
+        and lower(n.country) <> 'international'
         order by n.publishedAt desc, n.id desc
         """)
     List<NewsArticle> searchByKeywordAndArea(
@@ -125,9 +126,9 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
         select n from NewsArticle n
         where (
-            lower(n.title)   like concat('%', lower(:keyword), '%')
-         or lower(n.summary) like concat('%', lower(:keyword), '%')
-         or lower(n.content) like concat('%', lower(:keyword), '%')
+            lower(n.title)   like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.summary) like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.content) like concat('%', lower(:keyword), '%') escape '\\'
         )
         and lower(n.country) = lower(:country)
         and (n.region is null or n.region = '')
@@ -153,9 +154,9 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
         select n from NewsArticle n
         where (
-            lower(n.title)   like concat('%', lower(:keyword), '%')
-         or lower(n.summary) like concat('%', lower(:keyword), '%')
-         or lower(n.content) like concat('%', lower(:keyword), '%')
+            lower(n.title)   like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.summary) like concat('%', lower(:keyword), '%') escape '\\'
+         or lower(n.content) like concat('%', lower(:keyword), '%') escape '\\'
         )
         and lower(n.country) = 'international'
         and lower(n.region)  = lower(:domesticCountry)
@@ -169,6 +170,35 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     boolean existsByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
 
     Optional<NewsArticle> findFirstByTitleIgnoreCaseAndSourceIgnoreCase(String title, String source);
+
+    /**
+     * Scope-aware duplicate lookup for region-tagged rows (Local and International).
+     * Deduplicating per scope lets the same story appear in, say, both the Local
+     * and the National feed instead of belonging only to whichever scope saw it first.
+     */
+    Optional<NewsArticle> findFirstByTitleIgnoreCaseAndSourceIgnoreCaseAndCountryIgnoreCaseAndRegionIgnoreCase(
+            String title, String source, String country, String region);
+
+    /** Scope-aware duplicate lookup for rows without a region (National / All). */
+    Optional<NewsArticle> findFirstByTitleIgnoreCaseAndSourceIgnoreCaseAndCountryIgnoreCaseAndRegionIsNull(
+            String title, String source, String country);
+
+    // ── Last successful live-feed refresh per scope (max fetched_at) ──
+
+    @Query("select max(n.fetchedAt) from NewsArticle n where lower(n.region) = lower(:region) "
+            + "and lower(n.country) <> 'international'")
+    java.time.LocalDateTime findLastFetchedLocal(@Param("region") String region);
+
+    @Query("select max(n.fetchedAt) from NewsArticle n where lower(n.country) = lower(:country) "
+            + "and (n.region is null or n.region = '')")
+    java.time.LocalDateTime findLastFetchedNational(@Param("country") String country);
+
+    @Query("select max(n.fetchedAt) from NewsArticle n where lower(n.country) = 'international' "
+            + "and lower(n.region) = lower(:domesticCountry)")
+    java.time.LocalDateTime findLastFetchedInternational(@Param("domesticCountry") String domesticCountry);
+
+    @Query("select max(n.fetchedAt) from NewsArticle n")
+    java.time.LocalDateTime findLastFetchedAll();
 
     // ── Paged feed queries (year-filtered so pagination counts are consistent) ──
 
@@ -247,6 +277,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
             select n from NewsArticle n
             where lower(n.region) = lower(:region)
+              and lower(n.country) <> 'international'
               and year(n.publishedAt) = :year
             order by n.publishedAt desc, n.id desc
             """)
@@ -260,30 +291,12 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)
+              and lower(n.country) <> 'international'
               and year(n.publishedAt) = :year
             """)
     long countLocalNews(
             @Param("region") String region,
             @Param("year") int year);
-
-    /**
-     * Returns the most recent publishedAt timestamp for the given scope/year.
-     * Used to determine feed staleness so the service can re-fetch live news.
-     */
-    @Query("""
-            select max(n.publishedAt) from NewsArticle n
-            where (
-                (:location = 'All')
-                or (:location = 'National' and lower(n.country) = lower(:country) and (n.region is null or n.region = ''))
-                or (:location = 'International' and lower(n.country) = 'international' and lower(n.region) = lower(:country))
-                or (:location = 'Local' and lower(n.region) = lower(:region))
-            )
-            and year(n.publishedAt) = :year
-            """)
-    java.time.LocalDateTime findMostRecentPublishedAtForScope(@Param("location") String location,
-                                                               @Param("country") String country,
-                                                               @Param("region") String region,
-                                                               @Param("year") int year);
 
     /**
      * @deprecated Superseded by {@link #findLocalNewsByYear} (region-only).
@@ -327,6 +340,7 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)
+              and lower(n.country) <> 'international'
               and year(n.publishedAt) = :year
             """)
     long countByRegion(

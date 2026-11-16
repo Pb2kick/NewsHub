@@ -29,7 +29,7 @@ export default function GlobalSearchDropdown({ query, onClose, locationContext }
   const navigate = useNavigate();
   const panelRef = useRef(null);
 
-  const { articleResults, electionResults, candidateResults, isSearching, hasResults } =
+  const { articleResults, electionResults, candidateResults, isSearching, isSearchFailed, hasResults } =
     useGlobalSearch(query, locationContext);
 
   // Close on outside CLICK (not mousedown — see header comment above).
@@ -92,8 +92,15 @@ export default function GlobalSearchDropdown({ query, onClose, locationContext }
         </div>
       )}
 
+      {/* Request failed (e.g. backend waking up) — not the same as "no results" */}
+      {!isSearching && !hasResults && isSearchFailed && (
+        <div className="px-4 py-5 text-sm text-amber-700 text-center">
+          Search is unavailable right now. Please try again in a moment.
+        </div>
+      )}
+
       {/* No results state */}
-      {!isSearching && !hasResults && (
+      {!isSearching && !hasResults && !isSearchFailed && (
         <div className="px-4 py-5 text-sm text-slate-500 text-center">
           No results found for <span className="font-semibold text-slate-700">"{query.trim()}"</span>
         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import HomeFooter from '../../news/components/HomeFooter';
 import HomeHeader from '../../news/components/HomeHeader';
@@ -33,7 +33,12 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     isUsingCurrentLocation,
     area,
     country,
-  } = useLocationNews();
+  } = useLocationNews({ loadNews: false }); // header only — no feed fetch on non-home pages
+  // Stable identity so the search request is not re-sent on every render.
+  const locationContext = useMemo(
+    () => ({ selectedLocation, area, country }),
+    [selectedLocation, area, country]
+  );
   const {
     isProfileMenuOpen,
     setIsProfileMenuOpen,
@@ -94,7 +99,7 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
         setSearchQuery={setSearchQuery}
         isSearchOpen={isSearchOpen}
         setIsSearchOpen={setIsSearchOpen}
-        locationContext={{ selectedLocation, area, country }}
+        locationContext={locationContext}
         notifications={notifications}
         unreadCount={unreadCount}
         markOneRead={markOneRead}

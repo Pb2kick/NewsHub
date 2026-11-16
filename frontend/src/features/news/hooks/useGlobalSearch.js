@@ -28,7 +28,12 @@ export function useGlobalSearch(query, locationContext) {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [articleResults, setArticleResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSearchFailed, setIsSearchFailed] = useState(false);
   const abortRef = useRef(null);
+  const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+  // True during the debounce window, so the panel shows "Searching…" rather than
+  // flashing "No results" before the request has even been sent.
+  const isDebouncing = trimmedQuery.length >= MIN_QUERY_LENGTH && trimmedQuery !== debouncedQuery;
 
   // Debounce: update debouncedQuery 300 ms after the raw query stops changing.
   useEffect(() => {
@@ -66,6 +71,7 @@ export function useGlobalSearch(query, locationContext) {
     const controller = new AbortController();
     abortRef.current = controller;
     setIsSearching(true);
+    setIsSearchFailed(false);
 
     searchNews({
       query: debouncedQuery,
@@ -79,8 +85,11 @@ export function useGlobalSearch(query, locationContext) {
           setArticleResults(results);
         }
       })
-      .catch(() => {
-        // Ignore abort errors; surface nothing for network failures.
+      .catch((error) => {
+        if (error?.name !== 'AbortError' && !controller.signal.aborted) {
+          setArticleResults([]);
+          setIsSearchFailed(true);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -191,7 +200,8 @@ export function useGlobalSearch(query, locationContext) {
     articleResults,
     electionResults,
     candidateResults,
-    isSearching,
+    isSearching: isSearching || isDebouncing,
+    isSearchFailed,
     hasResults,
   };
 }
