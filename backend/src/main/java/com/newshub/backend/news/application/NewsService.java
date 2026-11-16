@@ -4,15 +4,23 @@ import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
-import org.springframework.beans.factory.annotation.Value; // added missing @Value import for constructor injection
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class NewsService {
@@ -24,60 +32,42 @@ public class NewsService {
 
     private static final DateTimeFormatter FEED_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
     private static final String LEGACY_STATIC_IMAGE = "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
+    /** Minimum gap between live-fetch attempts for one scope, even when the attempt found nothing. */
+    private static final Duration MIN_REFRESH_ATTEMPT_GAP = Duration.ofMinutes(15);
 
     private final NewsArticleRepository newsArticleRepository;
     private final ExternalNewsService externalNewsService;
-    // Injected TTL (hours) controlling when DB data is considered stale and triggers a live fetch.
     private final long staleHours;
+    /** scope key → last live-fetch attempt; stops repeated fetches while Bing returns nothing new. */
+    private final Map<String, Instant> lastRefreshAttempt = new ConcurrentHashMap<>();
 
-    /**
-     * Creates the news service with persistence and live feed dependencies.
-     *
-     * @param newsArticleRepository repository for local news records
-     * @param externalNewsService service for live external feeds
-     */
     public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService,
-                       @Value("${news.external.stale-hours:6}") long staleHours) { // fixed: use @Value annotation, not FQCN expression
+                       @Value("${news.external.stale-hours:6}") long staleHours) {
         this.newsArticleRepository = newsArticleRepository;
         this.externalNewsService = externalNewsService;
-        this.staleHours = staleHours; // store configured staleness threshold
+        this.staleHours = staleHours;
     }
 
     /**
      * Returns location-aware news using a DB-first strategy.
      *
-     * Serving order:
-     *  1. Count current-year articles in DB for the resolved location scope.
-     *  2. If count &gt; 0 → serve directly from DB (fast path, no outbound HTTP).
-     *  3. If count == 0 → call fetchLiveNews() once to populate the DB, then
-     *     serve page 0 from DB.
-     *
-     * @param location  scope mode (Local, National, International)
-     * @param latitude  optional latitude for Local scope
-     * @param longitude optional longitude for Local scope
-     * @param country   selected country context
-     * @param area      selected area context
-     * @param page      0-indexed page number
-     * @param size      page size (number of articles per page)
-     * @return paginated feed page
+     * <p>Only the first page may trigger a live fetch, and only when the scope is
+     * empty or its last successful fetch is older than {@code staleHours}. Later
+     * pages always read the DB as-is so "See More" never waits on Bing and offsets
+     * do not shift underneath the user mid-scroll.
      */
     public NewsFeedPage getNews(String location, Double latitude, Double longitude,
                                 String country, String area, int page, int size) {
         String requestedCountry = normalizeCountry(country);
-        String requestedLocation = normalizeLocation(location, latitude, longitude, area);
+        String requestedLocation = normalizeLocation(location, area);
         int currentYear = LocalDateTime.now().getYear();
 
-        // Country must be explicitly provided by the frontend. Returning empty feed for unresolved location prevents cross-user DB
-        // contamination. Frontend's loadLocationNews() already guards this.
         if (requestedCountry.isBlank() || requestedLocation.isBlank()) {
             return new NewsFeedPage(List.of(), 0, false);
         }
 
-        // DB-first: only call live fetch when the DB has no current-year articles for this scope.
-        long existingCount = countForScope(requestedLocation, requestedCountry, currentYear);
-        // Determine whether the DB is empty for this scope OR the most recent article is older than staleHours.
-        boolean needsRefresh = existingCount == 0 || isScopeStale(requestedLocation, requestedCountry, currentYear);
-        if (needsRefresh) {
+        if (page == 0 && needsRefresh(requestedLocation, requestedCountry, currentYear)) {
+            lastRefreshAttempt.put(scopeKey(requestedLocation, requestedCountry), Instant.now());
             List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
             if (!liveNews.isEmpty()) {
                 persistExternalNews(liveNews, requestedLocation, requestedCountry);
@@ -88,158 +78,124 @@ public class NewsService {
     }
 
     /**
+     * Returns a single persisted article regardless of scope, for article links
+     * opened directly (refresh, shared link, notification).
+     */
+    public Optional<NewsFeedItem> getArticleById(long id) {
+        return newsArticleRepository.findById(id).map(this::toFeedItem);
+    }
+
+    /**
      * Searches persisted articles whose title, summary, or content contain the
-     * given keyword phrase, scoped to the user's current location.
-     *
-     * Dispatches to the appropriate repository query based on the location mode:
-     *  - Local         → searchByKeywordAndArea    (matches region only — BUG 2 FIX: country OR branch removed)
-     *  - National      → searchByKeywordAndNational (matches domestic country, excludes region-tagged Local rows)
-     *  - International → searchByKeywordAndInternational (matches country='International' AND region=:domesticCountry — BUG 1 FIX)
-     *  - null / unresolved → List.of() — never dumps the whole DB on an unscoped request.
-     *
-     * Returns at most 8 results ordered by publish date.
-     *
-     * @param query    raw search query from the user
-     * @param location scope mode: Local, National, or International
-     * @param area     resolved area for Local scope (e.g. "New Orleans")
-     * @param country  resolved country for National scope (e.g. "United States")
-     * @return list of matching feed items, empty when query or location context is blank
+     * given phrase, scoped to the user's current location. Returns at most 8.
      */
     public List<NewsFeedItem> searchNews(String query, String location, String area, String country) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-
-        // FIX A+B: Reject unresolved context immediately — no country default injected here.
-        // normalizeCountry() is intentionally NOT called so a null country from the frontend
-        // cannot silently become "Philippines" and cross-contaminate results for other locales.
-        // If both location and country are absent the request arrived before the frontend's
-        // locationContext resolved; returning an empty list is the safe, correct behaviour.
         if ((location == null || location.isBlank()) && (country == null || country.isBlank())) {
             return List.of(); // location context not yet resolved — do not query
         }
-
-        if (LOCATION_NATIONAL.equalsIgnoreCase(location)
-                && (country == null || country.isBlank())) {
-            return List.of(); // country unresolved — do not query national scope
+        if (LOCATION_NATIONAL.equalsIgnoreCase(location) && (country == null || country.isBlank())) {
+            return List.of();
         }
 
-        String keyword = query.trim();
+        String keyword = escapeLikePattern(query.trim());
         PageRequest page = PageRequest.of(0, 8);
-        // Use country as-is; blank/null means the caller has not resolved it yet.
         String resolvedCountry = (country != null && !country.isBlank()) ? country.trim() : "";
 
         if (LOCATION_LOCAL.equalsIgnoreCase(location) && area != null && !area.isBlank()) {
-            return newsArticleRepository
-                    // BUG 2 FIX: country param removed from Local search — region-only match
-                    // prevents National articles from bleeding into Local search results.
-                    .searchByKeywordAndArea(keyword, area.trim(), page)
-                    .stream()
-                    .map(this::toFeedItem)
-                    .toList();
+            return newsArticleRepository.searchByKeywordAndArea(keyword, area.trim(), page)
+                    .stream().map(this::toFeedItem).toList();
         }
-
         if (LOCATION_NATIONAL.equalsIgnoreCase(location)) {
-            return newsArticleRepository
-                    .searchByKeywordAndNational(keyword, resolvedCountry, page)
-                    .stream()
-                    .map(this::toFeedItem)
-                    .toList();
+            return newsArticleRepository.searchByKeywordAndNational(keyword, resolvedCountry, page)
+                    .stream().map(this::toFeedItem).toList();
         }
-
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
-            return newsArticleRepository
-                    // BUG 1 FIX: nationalCountry param removed — new query matches
-                    // country='international' AND region=:domesticCountry instead of NOT IN.
-                    .searchByKeywordAndInternational(keyword, resolvedCountry, page)
-                    .stream()
-                    .map(this::toFeedItem)
-                    .toList();
+            return newsArticleRepository.searchByKeywordAndInternational(keyword, resolvedCountry, page)
+                    .stream().map(this::toFeedItem).toList();
         }
-
-        // FIX B: location is present but doesn't match any known mode (e.g. a raw area name
-        // arriving before the frontend normalises it). Return empty — never fall through to
-        // the unscoped searchByKeyword which would dump the entire database.
-        return List.of(); // unknown/unsupported location mode — do not query
+        return List.of(); // unknown mode — never fall through to an unscoped search
     }
 
     /**
-     * Normalizes incoming location mode to a concrete location used for lookups.
-     *
-     * @param location incoming location mode
-     * @param latitude optional latitude
-     * @param longitude optional longitude
-     * @param area selected area context
-     * @return normalized lookup location
+     * Escapes LIKE metacharacters so a user typing "%" or "_" searches for that
+     * character instead of matching every row. Paired with {@code escape '\'} in the queries.
      */
-    private String normalizeLocation(String location, Double latitude, Double longitude, String area) {
-        if (location == null || location.isBlank()) {
-            return firstNonBlank(area, resolveLocationFromCoordinates(latitude, longitude));
-        }
-
-        if (LOCATION_LOCAL.equalsIgnoreCase(location)) {
-            if (area != null && !area.isBlank()) {
-                return area;
-            }
-            return resolveLocationFromCoordinates(latitude, longitude);
-        }
-
-        return location;
+    static String escapeLikePattern(String raw) {
+        return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     /**
-     * Normalizes country context with safe fallback.
-     *
-     * @param country selected country context
-     * @return normalized country value
+     * Resolves the lookup location: the scope name for National/International/All,
+     * or the area name for Local. A Local request without an area resolves to ""
+     * (empty feed) — the old coordinate fallback invented Philippine placeholder
+     * regions such as "North Province" for any coordinates.
      */
+    private String normalizeLocation(String location, String area) {
+        String trimmedArea = area == null ? "" : area.trim();
+        if (location == null || location.isBlank() || LOCATION_LOCAL.equalsIgnoreCase(location)) {
+            return trimmedArea;
+        }
+        return location.trim();
+    }
+
     private String normalizeCountry(String country) {
-        if (country == null || country.isBlank()) {
-            return "";
-        }
-        return country.trim();
+        return country == null || country.isBlank() ? "" : country.trim();
     }
 
     /**
-     * Resolves a deterministic local area from coordinates.
-     *
-     * @param latitude latitude value
-     * @param longitude longitude value
-     * @return resolved area name
+     * A scope needs a live fetch when it has no current-year articles, or when its
+     * last successful fetch (max fetched_at) is older than staleHours. Attempts are
+     * throttled per scope so a feed that keeps returning nothing new is not
+     * re-fetched on every request.
      */
-    private String resolveLocationFromCoordinates(Double latitude, Double longitude) {
-        if (Objects.isNull(latitude) || Objects.isNull(longitude)) {
-            return "Metro District";
+    private boolean needsRefresh(String requestedLocation, String requestedCountry, int currentYear) {
+        Instant lastAttempt = lastRefreshAttempt.get(scopeKey(requestedLocation, requestedCountry));
+        if (lastAttempt != null && Duration.between(lastAttempt, Instant.now()).compareTo(MIN_REFRESH_ATTEMPT_GAP) < 0) {
+            return false;
         }
-
-        // Temporary deterministic mapping while reverse-geocoding is not integrated.
-        if (longitude < 121.0) {
-            return "North Province";
+        if (countForScope(requestedLocation, requestedCountry, currentYear) == 0) {
+            return true;
         }
-
-        if (latitude < 14.4) {
-            return "Central Region";
+        LocalDateTime lastFetched = lastFetchedForScope(requestedLocation, requestedCountry);
+        if (lastFetched == null) {
+            return true; // rows predate fetched_at tracking
         }
-
-        return "Metro District";
+        return Duration.between(lastFetched, nowUtc()).toHours() >= staleHours;
     }
 
-    /**
-     * Maps a persisted entity to API feed shape.
-     *
-     * @param article news entity
-     * @return mapped feed item
-     */
+    private LocalDateTime lastFetchedForScope(String requestedLocation, String requestedCountry) {
+        if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.findLastFetchedAll();
+        }
+        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.findLastFetchedNational(requestedCountry);
+        }
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
+            return newsArticleRepository.findLastFetchedInternational(requestedCountry);
+        }
+        return newsArticleRepository.findLastFetchedLocal(requestedLocation);
+    }
+
+    private String scopeKey(String requestedLocation, String requestedCountry) {
+        return requestedLocation.toLowerCase(Locale.ROOT) + "|" + requestedCountry.toLowerCase(Locale.ROOT);
+    }
+
     private NewsFeedItem toFeedItem(NewsArticle article) {
         String effectiveLocation = firstNonBlank(article.getRegion(), article.getCountry(), LOCATION_NATIONAL);
         String excerpt = firstNonBlank(article.getSummary(), truncate(article.getContent(), 180), "No summary available.");
         String author = firstNonBlank(article.getSource(), "NewsHub Desk");
-        String category = classifyCategory(article.getSource(), article.getTitle(), article.getSummary(), article.getContent());
+        String category = NewsCategoryClassifier.classify("", article.getTitle(), article.getSummary(),
+                article.getContent(), article.getSource());
         String image = sanitizeImageUrl(article.getMediaUrls());
         String date = article.getPublishedAt() != null
                 ? FEED_DATE_FORMATTER.format(article.getPublishedAt())
                 : "Unknown date";
-        String readTime = estimateReadTime(article.getContent());
+        String publishedAtIso = article.getPublishedAt() != null
+                ? article.getPublishedAt().toInstant(ZoneOffset.UTC).toString()
+                : null;
 
         return new NewsFeedItem(
                 article.getId(),
@@ -247,194 +203,128 @@ public class NewsService {
                 category,
                 article.getTitle(),
                 excerpt,
-            firstNonBlank(article.getContent(), excerpt),
+                firstNonBlank(article.getContent(), excerpt),
                 author,
                 date,
-                readTime,
+                estimateReadTime(article.getContent()),
                 image,
-            "DATABASE",
-            article.getSourceUrl(),
-            null
+                "DATABASE",
+                article.getSourceUrl(),
+                null,
+                publishedAtIso
         );
     }
 
     /**
-     * Stores fresh external items while avoiding duplicate rows.
-     *
-     * @param liveNews fetched live items
-     * @param requestedLocation resolved location used to derive country and region
-     * @param requestedCountry selected country context
+     * Stores fresh live items for one scope. Duplicates are checked within the
+     * same scope (title + source + country + region), so a story can live in
+     * both the Local and the National feed. Every item the feed returned gets
+     * fetched_at = now, which is what marks the scope as fresh.
      */
     private void persistExternalNews(List<NewsFeedItem> liveNews, String requestedLocation, String requestedCountry) {
-        List<NewsArticle> upsertArticles = liveNews.stream()
-            .map(item -> {
-                String normalizedImage = sanitizeImageUrl(item.image());
-                NewsArticle existingArticle = newsArticleRepository
-                    .findFirstByTitleIgnoreCaseAndSourceIgnoreCase(item.title(), item.author())
-                    .orElse(null);
+        String country = resolveCountryForLocation(requestedLocation, requestedCountry);
+        String region = resolveRegionForLocation(requestedLocation, requestedCountry);
+        LocalDateTime fetchedAt = nowUtc();
+        Set<String> seenInBatch = new HashSet<>();
 
-                if (existingArticle != null) {
-                String currentImage = sanitizeImageUrl(existingArticle.getMediaUrls());
-                if (currentImage.isBlank() && !normalizedImage.isBlank()) {
-                    existingArticle.setMediaUrls(normalizedImage);
-                    return existingArticle;
-                }
-                return null;
-                }
-
-                return new NewsArticle(
-                    item.title(),
-                    item.excerpt(),
-                    firstNonBlank(item.content(), item.excerpt()),
-                    normalizedImage,
-                    item.author(),
-                    item.sourceUrl(),
-                    resolveCountryForLocation(requestedLocation, requestedCountry),
-                    // BUG 1 FIX: pass requestedCountry so the 2-arg overload can store
-                    // domestic country in region for International-scoped articles.
-                    resolveRegionForLocation(requestedLocation, requestedCountry),
-                    parseFeedDate(item.date()),
-                    null
-                );
-            })
-            .filter(Objects::nonNull)
+        List<NewsArticle> toSave = liveNews.stream()
+                .filter(item -> item.title() != null && !item.title().isBlank())
+                .filter(item -> seenInBatch.add((item.title() + "|" + item.author()).toLowerCase(Locale.ROOT)))
+                .map(item -> {
+                    String normalizedImage = sanitizeImageUrl(item.image());
+                    NewsArticle existing = findExistingInScope(item.title(), item.author(), country, region).orElse(null);
+                    if (existing != null) {
+                        existing.setFetchedAt(fetchedAt);
+                        if (sanitizeImageUrl(existing.getMediaUrls()).isBlank() && !normalizedImage.isBlank()) {
+                            existing.setMediaUrls(normalizedImage);
+                        }
+                        return existing;
+                    }
+                    NewsArticle created = new NewsArticle(
+                            item.title(),
+                            item.excerpt(),
+                            firstNonBlank(item.content(), item.excerpt()),
+                            normalizedImage,
+                            item.author(),
+                            item.sourceUrl(),
+                            country,
+                            region,
+                            parsePublishedAt(item),
+                            null
+                    );
+                    created.setFetchedAt(fetchedAt);
+                    return created;
+                })
+                .filter(Objects::nonNull)
                 .toList();
 
-        if (!upsertArticles.isEmpty()) {
-            newsArticleRepository.saveAll(upsertArticles);
+        if (!toSave.isEmpty()) {
+            newsArticleRepository.saveAll(toSave);
         }
     }
 
+    private Optional<NewsArticle> findExistingInScope(String title, String source, String country, String region) {
+        String safeSource = source == null ? "" : source;
+        if (region == null) {
+            return newsArticleRepository
+                    .findFirstByTitleIgnoreCaseAndSourceIgnoreCaseAndCountryIgnoreCaseAndRegionIsNull(title, safeSource, country);
+        }
+        return newsArticleRepository
+                .findFirstByTitleIgnoreCaseAndSourceIgnoreCaseAndCountryIgnoreCaseAndRegionIgnoreCase(title, safeSource, country, region);
+    }
+
     /**
-     * Parses feed date text into a persisted timestamp.
-     *
-     * @param feedDate feed date in MMM d, yyyy format
-     * @return parsed date or current time when parsing fails
+     * Uses the exact ISO timestamp when the live item has one (keeps time of day
+     * for ordering); falls back to the "MMM d, yyyy" display date, then to now.
+     * Stored as UTC wall-clock time.
      */
-    private LocalDateTime parseFeedDate(String feedDate) {
+    private LocalDateTime parsePublishedAt(NewsFeedItem item) {
+        if (item.publishedAt() != null && !item.publishedAt().isBlank()) {
+            try {
+                return LocalDateTime.ofInstant(Instant.parse(item.publishedAt()), ZoneOffset.UTC);
+            } catch (Exception ignored) {
+                // fall through to the display date
+            }
+        }
+        String feedDate = item.date();
         if (feedDate == null || feedDate.isBlank() || "Latest".equalsIgnoreCase(feedDate)) {
-            return LocalDateTime.now();
+            return nowUtc();
         }
         try {
             return LocalDateTime.parse(feedDate + " 00:00", DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm", Locale.ENGLISH));
         } catch (Exception ignored) {
-            return LocalDateTime.now();
+            return nowUtc();
         }
     }
 
-    /**
-     * Derives country classification from selected location.
-     *
-     * @param requestedLocation selected location
-     * @param requestedCountry selected country context
-     * @return country value for persistence
-     */
-    private String resolveCountryForLocation(String requestedLocation, String requestedCountry) {
-        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation) || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
-            return requestedCountry;
-        }
+    private static LocalDateTime nowUtc() {
+        return LocalDateTime.now(ZoneOffset.UTC);
+    }
 
+    private String resolveCountryForLocation(String requestedLocation, String requestedCountry) {
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
             return "International";
         }
-
-        return requestedCountry; // FIX 1: was "Philippines" — hardcoded for PH-only launch; must use actual user country so articles are tagged correctly for all locales
+        return requestedCountry;
     }
 
     /**
-     * Derives region value from selected location.
-     *
-     * @param requestedLocation selected location
-     * @return region value or null for non-regional modes
-     */
-    private String resolveRegionForLocation(String requestedLocation) {
-        // BUG 4 FIX: null/blank input no longer hard-defaults to a Philippines area.
-        // Returning null is safe — country column alone identifies the article's scope.
-        if (requestedLocation == null || requestedLocation.isBlank()) {
-            return null; // was "Metro District" — removed PH-hardcoded default
-        }
-        if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)
-                || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
-            return null; // National/All articles carry no region tag
-        }
-        // BUG 1 FIX: International scope handled by the overloaded variant below;
-        // this branch is never reached for International — kept for clarity.
-        return requestedLocation; // Local / resolved area name
-    }
-
-    /**
-     * Derives region value for International scope articles.
-     *
-     * BUG 1 FIX: stores the user's domestic country in the region column so
-     * International articles are country-scoped without adding a new DB column.
-     * Schema: country="International", region="United States" (for US user).
-     *
-     * @param requestedLocation selected location mode
-     * @param requestedCountry  user's domestic country
-     * @return region value to persist
+     * Region column: null for National/All, the area for Local, and the user's
+     * domestic country for International (so each country's International pool
+     * stays separate without a new column).
      */
     private String resolveRegionForLocation(String requestedLocation, String requestedCountry) {
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            // Store domestic country in region so each user's International articles
-            // are distinguishable from every other country's International articles.
-            return requestedCountry; // was null — caused all-user cross-contamination
+            return requestedCountry;
         }
-        return resolveRegionForLocation(requestedLocation); // delegate for all other modes
+        if (requestedLocation == null || requestedLocation.isBlank()
+                || LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)
+                || LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
+            return null;
+        }
+        return requestedLocation;
     }
 
-    /**
-     * Classifies article category using explicit source cues and text keywords.
-     *
-     * @param source article source
-     * @param title article title
-     * @param summary article summary
-     * @param content article content
-     * @return category label aligned with homepage tabs
-     */
-    private String classifyCategory(String source, String title, String summary, String content) {
-        String searchable = (firstNonBlank(source, "") + " "
-                + firstNonBlank(title, "") + " "
-                + firstNonBlank(summary, "") + " "
-                + firstNonBlank(content, "")).toLowerCase(Locale.ROOT);
-
-        if (containsAny(searchable, "election", "vote", "voting", "candidate", "campaign", "ballot", "poll")) {
-            return "Elections";
-        }
-        if (containsAny(searchable, "technology", "tech", "cyber", "digital", "software", "ai", "data", "platform")) {
-            return "Technology";
-        }
-        if (containsAny(searchable, "economy", "economic", "business", "market", "finance", "inflation", "trade", "gdp")) {
-            return "Economy";
-        }
-        if (containsAny(searchable, "politic", "government", "senate", "congress", "policy", "commission", "legislation")) {
-            return "Politics";
-        }
-
-        return "Top Stories";
-    }
-
-    /**
-     * Determines whether any keyword exists in normalized text.
-     *
-     * @param searchable normalized searchable text
-     * @param keywords keyword list
-     * @return true when any keyword matches
-     */
-    private boolean containsAny(String searchable, String... keywords) {
-        for (String keyword : keywords) {
-            if (searchable.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Estimates reading time based on article word count.
-     *
-     * @param content article content
-     * @return read-time label
-     */
     private String estimateReadTime(String content) {
         if (content == null || content.isBlank()) {
             return "3 min read";
@@ -444,13 +334,6 @@ public class NewsService {
         return minutes + " min read";
     }
 
-    /**
-     * Truncates text with ellipsis to fit the configured limit.
-     *
-     * @param text source text
-     * @param maxLength maximum character count
-     * @return truncated text
-     */
     private String truncate(String text, int maxLength) {
         if (text == null || text.isBlank()) {
             return "";
@@ -461,51 +344,18 @@ public class NewsService {
         return text.substring(0, maxLength - 3) + "...";
     }
 
-    /**
-     * Normalizes image URL and removes deprecated static placeholder image.
-     *
-     * @param imageUrl raw image URL
-     * @return normalized image URL or empty string
-     */
     private String sanitizeImageUrl(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) {
             return "";
         }
-
         String normalized = imageUrl.trim();
-        if (LEGACY_STATIC_IMAGE.equals(normalized)) {
-            return "";
-        }
-
-        return normalized;
+        return LEGACY_STATIC_IMAGE.equals(normalized) ? "" : normalized;
     }
 
     /**
-     * Validates that an article belongs to the current calendar year.
-     *
-     * @param publishedAt publish timestamp
-     * @return true when article is from current year
+     * Serves one page of current-year articles from the DB for the given scope.
      */
-    private boolean isCurrentYear(LocalDateTime publishedAt) {
-        if (publishedAt == null) {
-            return false;
-        }
-
-        return publishedAt.getYear() == LocalDateTime.now().getYear();
-    }
-
-    /**
-     * Serves a single page of current-year articles from the DB for the given scope.
-     * Computes totalCount and hasMore so the frontend can render the See More control.
-     *
-     * @param requestedLocation resolved location/scope string
-     * @param requestedCountry  resolved country
-     * @param page              0-indexed page number
-     * @param size              page size
-     * @return populated NewsFeedPage
-     */
-    private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry,
-                                          int page, int size) {
+    private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry, int page, int size) {
         int currentYear = LocalDateTime.now().getYear();
         PageRequest pageRequest = PageRequest.of(page, size);
         long total;
@@ -515,19 +365,12 @@ public class NewsService {
             total = newsArticleRepository.countByYear(currentYear);
             articles = newsArticleRepository.findAllByYear(currentYear, pageRequest);
         } else if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
-            // BUG 2 FIX: findNationalNewsByYear now excludes articles with a non-null region
-            // so city-specific Local articles never appear in the National feed.
             total = newsArticleRepository.countNationalNews(requestedCountry, currentYear);
             articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, currentYear, pageRequest);
         } else if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            // BUG 1 FIX: new 1-country signature — matches country='International' AND region=:domesticCountry
-            // instead of the old NOT IN approach that pooled all users' International articles together.
             total = newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
             articles = newsArticleRepository.findInternationalNewsByYear(requestedCountry, currentYear, pageRequest);
         } else {
-            // Local / area scope — requestedLocation holds the resolved area string.
-            // BUG 2+3 FIX: use renamed findLocalNewsByYear / countLocalNews which match
-            // ONLY by region, eliminating the OR country=:country bleed-through.
             total = newsArticleRepository.countLocalNews(requestedLocation, currentYear);
             articles = newsArticleRepository.findLocalNewsByYear(requestedLocation, currentYear, pageRequest);
         }
@@ -537,55 +380,19 @@ public class NewsService {
         return new NewsFeedPage(items, (int) total, hasMore);
     }
 
-    /**
-     * Returns the total count of current-year articles for the given scope
-     * without loading any rows into memory.
-     *
-     * @param requestedLocation resolved location/scope string
-     * @param requestedCountry  resolved country
-     * @param currentYear       current calendar year
-     * @return article count
-     */
     private long countForScope(String requestedLocation, String requestedCountry, int currentYear) {
         if (LOCATION_ALL.equalsIgnoreCase(requestedLocation)) {
             return newsArticleRepository.countByYear(currentYear);
         }
         if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
-            // BUG 2 FIX: countNationalNews now excludes non-null region rows — consistent
-            // with the updated findNationalNewsByYear used in servePagedFromDb.
             return newsArticleRepository.countNationalNews(requestedCountry, currentYear);
         }
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            // BUG 1+3 FIX: use the new 1-country signature that matches on region=:domesticCountry
-            // instead of NOT IN, consistent with servePagedFromDb's findInternationalNewsByYear.
             return newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
         }
-        // Local scope should only count region-matched rows (no national bleed-through).
-        return newsArticleRepository.countByRegion(requestedLocation, currentYear);
+        return newsArticleRepository.countLocalNews(requestedLocation, currentYear);
     }
 
-    // Returns true when the latest persisted article for the scope is older than the configured staleHours.
-    private boolean isScopeStale(String requestedLocation, String requestedCountry, int currentYear) {
-        try {
-            java.time.LocalDateTime latest = newsArticleRepository.findMostRecentPublishedAtForScope(
-                    requestedLocation, requestedCountry, requestedLocation, currentYear);
-            if (latest == null) {
-                return true; // no articles — consider stale so fetch occurs
-            }
-            java.time.Duration age = java.time.Duration.between(latest, java.time.LocalDateTime.now());
-            return age.toHours() >= staleHours;
-        } catch (Exception e) {
-            // On error, assume not stale to avoid hammering external feeds; serve DB data instead.
-            return false;
-        }
-    }
-
-    /**
-     * Returns the first non-empty string from a sequence.
-     *
-     * @param values candidate values
-     * @return first non-blank value or empty string
-     */
     private String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {

@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -34,7 +35,10 @@ import java.util.Map;
 import java.util.Comparator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 public class ExternalNewsService {
@@ -46,6 +50,18 @@ public class ExternalNewsService {
     private static final Pattern QUALITY_PARAM_PATTERN = Pattern.compile("([?&](?:q|quality)=)(\\d{1,3})", Pattern.CASE_INSENSITIVE);
     private static final Pattern SMALL_DIMENSION_PATTERN = Pattern.compile("(\\d{2,3})x(\\d{2,3})", Pattern.CASE_INSENSITIVE);
     private static final String LOCATION_INTERNATIONAL = "International";
+    /** Short forms that news headlines use more often than the full country name. */
+    private static final Map<String, String> COUNTRY_SHORT_NAMES = Map.of(
+            "united states", "US",
+            "united states of america", "US",
+            "united kingdom", "UK",
+            "united arab emirates", "UAE");
+    /** Bounded pool for article-page image lookups (each can take up to 8 s). */
+    private static final ExecutorService IMAGE_LOOKUP_POOL = Executors.newFixedThreadPool(6, runnable -> {
+        Thread thread = new Thread(runnable, "news-image-lookup");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final HttpClient httpClient;
     private final boolean externalNewsEnabled;
@@ -78,40 +94,152 @@ public class ExternalNewsService {
             return List.of();
         }
 
-        invalidateCacheForCountry(requestedCountry);
+        evictExpiredCacheEntries();
         String cacheKey = normalizeLocationKey(requestedLocation, requestedCountry);
         CacheEntry cached = cacheByLocation.get(cacheKey);
         if (cached != null && !isExpired(cached.cachedAt())) {
             return cached.items();
         }
 
-        try {
-            String query = queryForLocation(requestedLocation, requestedCountry);
-            String url = buildBingNewsRssUrl(query);
+        List<String> queries = queriesForLocation(requestedLocation, requestedCountry);
+        if (queries.isEmpty()) {
+            return List.of();
+        }
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(12))
-                    .header("User-Agent", "NewsHubBackend/1.0")
-                    .GET()
-                    .build();
+        // Bing's RSS endpoint returns only a handful of items per query (sometimes
+        // zero for broad phrasings), so several phrasings run concurrently and are merged.
+        List<CompletableFuture<List<RssItem>>> pending = queries.stream()
+                .map(this::fetchRssAsync)
+                .toList();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() > 299) {
-                return cached != null ? cached.items() : List.of();
+        Map<String, RssItem> merged = new LinkedHashMap<>();
+        for (CompletableFuture<List<RssItem>> future : pending) {
+            for (RssItem item : future.join()) {
+                merged.putIfAbsent(item.title().trim().toLowerCase(Locale.ROOT), item);
             }
+        }
 
-            List<NewsFeedItem> parsed = parseRssItems(response.body(), requestedLocation);
-            if (!parsed.isEmpty()) {
-                List<NewsFeedItem> immutableItems = List.copyOf(parsed);
-                cacheByLocation.put(cacheKey, new CacheEntry(immutableItems, Instant.now()));
-                return immutableItems;
-            }
+        List<RssItem> relevant = filterForScope(new ArrayList<>(merged.values()), requestedLocation, requestedCountry);
+        List<RssItem> newest = relevant.stream()
+                .sorted(Comparator.comparing(RssItem::publishedAt).reversed())
+                .limit(maxItems)
+                .toList();
 
-            return cached != null ? cached.items() : List.of();
-        } catch (Exception ignored) {
+        List<NewsFeedItem> items = toFeedItems(newest, requestedLocation);
+        if (items.isEmpty()) {
             return cached != null ? cached.items() : List.of();
         }
+
+        List<NewsFeedItem> immutableItems = List.copyOf(items);
+        cacheByLocation.put(cacheKey, new CacheEntry(immutableItems, Instant.now()));
+        return immutableItems;
+    }
+
+    /**
+     * Fetches and parses one Bing News RSS query without blocking the caller.
+     * Any failure yields an empty list so one bad query never sinks the others.
+     */
+    private CompletableFuture<List<RssItem>> fetchRssAsync(String query) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(buildBingNewsRssUrl(query)))
+                .timeout(Duration.ofSeconds(12))
+                .header("User-Agent", "NewsHubBackend/1.0")
+                .GET()
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .thenApply(response -> {
+                    if (response.statusCode() < 200 || response.statusCode() > 299) {
+                        return List.<RssItem>of();
+                    }
+                    try {
+                        return parseRssItems(response.body());
+                    } catch (Exception parseError) {
+                        return List.<RssItem>of();
+                    }
+                })
+                .exceptionally(error -> List.of());
+    }
+
+    /**
+     * Drops merged items that do not belong to the requested scope.
+     *
+     * <p>Local: keeps items that mention the area by name, because Bing matches
+     * loosely (a query for "New Orleans" returned a Bronx arrest story). If nothing
+     * mentions the area the unfiltered list is kept rather than showing nothing.
+     *
+     * <p>International: drops items whose headline names the user's own country,
+     * since those belong in the National feed.
+     */
+    private List<RssItem> filterForScope(List<RssItem> items, String requestedLocation, String requestedCountry) {
+        String location = requestedLocation == null ? "" : requestedLocation.trim();
+        String country = requestedCountry == null ? "" : requestedCountry.trim().toLowerCase(Locale.ROOT);
+
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
+            if (country.isBlank()) {
+                return items;
+            }
+            return items.stream()
+                    .filter(item -> !item.title().toLowerCase(Locale.ROOT).contains(country))
+                    .toList();
+        }
+
+        if (location.isBlank() || "National".equalsIgnoreCase(location) || "All".equalsIgnoreCase(location)) {
+            return items;
+        }
+
+        String areaToken = areaMatchToken(location);
+        if (areaToken.isBlank()) {
+            return items;
+        }
+        List<RssItem> mentioning = items.stream()
+                .filter(item -> (item.title() + " " + item.description()).toLowerCase(Locale.ROOT).contains(areaToken))
+                .toList();
+        return mentioning.isEmpty() ? items : mentioning;
+    }
+
+    /**
+     * Reduces an area name to the part news text actually uses:
+     * "City of Manila" → "manila", "Quezon City" stays "quezon city".
+     */
+    static String areaMatchToken(String area) {
+        String token = area.trim().toLowerCase(Locale.ROOT);
+        if (token.startsWith("city of ")) {
+            token = token.substring("city of ".length());
+        }
+        if (token.startsWith("municipality of ")) {
+            token = token.substring("municipality of ".length());
+        }
+        return token.trim();
+    }
+
+    /** Converts parsed RSS items to feed items, filling missing images from article pages in parallel. */
+    private List<NewsFeedItem> toFeedItems(List<RssItem> items, String requestedLocation) {
+        List<CompletableFuture<NewsFeedItem>> futures = items.stream()
+                .map(item -> CompletableFuture.supplyAsync(() -> {
+                    String imageUrl = item.imageUrl().isBlank()
+                            ? normalizeImageUrl(extractImageFromArticleMeta(item.articleUrl()))
+                            : item.imageUrl();
+                    String pubDate = formatPubDate(item.publishedAt());
+                    return new NewsFeedItem(
+                            syntheticId(item.title(), pubDate),
+                            requestedLocation,
+                            NewsCategoryClassifier.classify(item.feedCategory(), item.title(), item.description(), item.source()),
+                            item.title(),
+                            item.description(),
+                            item.description(),
+                            item.source(),
+                            pubDate,
+                            "3 min read",
+                            imageUrl,
+                            "EXTERNAL",
+                            firstNonBlank(item.articleUrl(), null),
+                            resolvePublisherImage(item.articleUrl()),
+                            item.publishedAt().toInstant().toString()
+                    );
+                }, IMAGE_LOOKUP_POOL))
+                .toList();
+        return futures.stream().map(CompletableFuture::join).toList();
     }
 
     /**
@@ -195,50 +323,56 @@ public class ExternalNewsService {
 
     private String buildBingNewsRssUrl(String query) {
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en-ph";
+        // setlang=en (not en-ph): the market was hardcoded to the Philippines for every user.
+        // count=30 asks Bing for its maximum page instead of the default ~10.
+        return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en&count=30";
     }
 
     /**
-     * Builds RSS search query from location scope and country context.
+     * Builds the Bing queries for a scope. Phrasings were chosen by measuring
+     * result counts: "United States national headlines" returned 1 item and
+     * broad phrasings like "world news" returned 0, while "&lt;country&gt; news",
+     * "international news" and "global news" return useful pages.
      *
-     * @param requestedLocation selected scope or resolved area
-     * @param requestedCountry selected country context
-     * @return encoded query input for news search
+     * @param requestedLocation scope mode or resolved area name
+     * @param requestedCountry  user's country
+     * @return queries to run and merge; empty when the country is unknown
      */
-    private String queryForLocation(String requestedLocation, String requestedCountry) {
-        // BUG 5 FIX: null/blank country no longer silently defaults to Philippines.
-        // Return a safe generic query so the RSS fetch doesn't contaminate the cache
-        // or the DB with PH-scoped content for non-PH users whose location hasn't resolved.
+    static List<String> queriesForLocation(String requestedLocation, String requestedCountry) {
         if (requestedCountry == null || requestedCountry.isBlank()) {
-            return "latest world news"; // generic fallback — never Philippines-specific
+            return List.of(); // never fetch unscoped news into the shared DB
         }
-        String country = requestedCountry.trim(); // was: null/blank ? "Philippines" : requestedCountry
-        String location = requestedLocation == null || requestedLocation.isBlank() ? "National" : requestedLocation;
+        String country = requestedCountry.trim();
+        String location = requestedLocation == null || requestedLocation.isBlank() ? "National" : requestedLocation.trim();
 
         if ("All".equalsIgnoreCase(location)) {
-            return country + " latest news";
+            return List.of(country + " news");
         }
-
         if ("National".equalsIgnoreCase(location)) {
-            return country + " national headlines";
+            // News text often uses a short form ("US economy" returned 14 items while
+            // "United States news" returned 0), so add it when the country has one.
+            String shortName = COUNTRY_SHORT_NAMES.getOrDefault(country.toLowerCase(Locale.ROOT), country);
+            LinkedHashSet<String> queries = new LinkedHashSet<>(List.of(
+                    country + " news", shortName + " news", shortName + " politics", shortName + " economy"));
+            return List.copyOf(queries);
         }
-
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
-            return "world international headlines near " + country + " NOT " + country;
+            // Topic phrasings measured to return current items consistently; generic
+            // "international news" / "global news" swung between 0 and 7 results.
+            return List.of("world leaders", "United Nations", "global economy", "foreign affairs", "diplomacy");
         }
-
-        return location + " " + country + " news";
+        return List.of(location + " " + country + " news", location + " news");
     }
 
-    private List<NewsFeedItem> parseRssItems(String xmlContent, String requestedLocation) throws Exception {
+    private List<RssItem> parseRssItems(String xmlContent) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(false);
 
         org.w3c.dom.Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xmlContent)));
         NodeList items = document.getElementsByTagName("item");
-        List<NewsFeedItem> output = new ArrayList<>();
+        List<RssItem> output = new ArrayList<>();
 
-        for (int i = 0; i < items.getLength() && output.size() < maxItems; i++) {
+        for (int i = 0; i < items.getLength(); i++) {
             Node item = items.item(i);
             if (item.getNodeType() != Node.ELEMENT_NODE) {
                 continue;
@@ -248,7 +382,6 @@ public class ExternalNewsService {
             String title = textContent(element, "title", "Untitled headline");
             String rawDescription = textContent(element, "description", "Latest updates from trusted outlets.");
             String description = cleanSummary(rawDescription);
-            String content = description;
             String source = sourceName(element);
             String feedCategory = firstNonBlank(
                     textContent(element, "category", ""),
@@ -259,27 +392,13 @@ public class ExternalNewsService {
                 continue;
             }
 
-            String pubDate = formatPubDate(publishedAt);
             String rawArticleUrl = textContent(element, "link", "");
             String articleUrl = resolvePublisherUrl(rawArticleUrl);
-            String imageUrl = extractImageUrl(element, rawDescription, articleUrl);
-                String category = classifyFeedCategory(feedCategory, source, title, description);
+            // Feed-embedded images only; the slow article-page lookup runs later, in
+            // parallel, and only for items that survive merging and trimming.
+            String imageUrl = extractImageUrl(element, rawDescription);
 
-            output.add(new NewsFeedItem(
-                    syntheticId(title, pubDate),
-                    requestedLocation,
-                    category,
-                    title,
-                    description,
-                    content,
-                    source,
-                    pubDate,
-                    "3 min read",
-                    imageUrl,
-                    "EXTERNAL",
-                    firstNonBlank(articleUrl, null),
-                    resolvePublisherImage(articleUrl)
-            ));
+            output.add(new RssItem(title, description, source, feedCategory, publishedAt, articleUrl, imageUrl));
         }
 
         return output;
@@ -298,68 +417,7 @@ public class ExternalNewsService {
         return firstNonBlank(source, "News Outlet");
     }
 
-    /**
-     * Classifies RSS feed items into homepage categories using explicit feed category
-     * and permissive text keyword fallback.
-     *
-     * @param feedCategory explicit RSS category when available
-     * @param source publisher/source string
-     * @param title article title
-     * @param description article summary text
-     * @return category label aligned with homepage tabs
-     */
-    private String classifyFeedCategory(String feedCategory, String source, String title, String description) {
-        String explicit = firstNonBlank(feedCategory, "").toLowerCase(Locale.ROOT);
-        if (containsAny(explicit, "politic", "government")) {
-            return "Politics";
-        }
-        if (containsAny(explicit, "econom", "business", "finance")) {
-            return "Economy";
-        }
-        if (containsAny(explicit, "tech", "technology", "science", "digital")) {
-            return "Technology";
-        }
-        if (containsAny(explicit, "elect", "vote", "campaign")) {
-            return "Elections";
-        }
-
-        String searchable = (firstNonBlank(source, "") + " "
-                + firstNonBlank(title, "") + " "
-                + firstNonBlank(description, "")).toLowerCase(Locale.ROOT);
-
-        if (containsAny(searchable, "election", "vote", "voting", "candidate", "campaign", "ballot", "poll")) {
-            return "Elections";
-        }
-        if (containsAny(searchable, "technology", "tech", "cyber", "digital", "software", "ai", "data", "platform")) {
-            return "Technology";
-        }
-        if (containsAny(searchable, "economy", "economic", "business", "market", "finance", "inflation", "trade", "gdp")) {
-            return "Economy";
-        }
-        if (containsAny(searchable, "politic", "government", "senate", "congress", "policy", "commission", "legislation")) {
-            return "Politics";
-        }
-
-        return "Top Stories";
-    }
-
-    /**
-     * Determines whether normalized text contains any keyword.
-     *
-     * @param searchable normalized searchable text
-     * @param keywords keyword list
-     * @return true when any keyword is present
-     */
-    private boolean containsAny(String searchable, String... keywords) {
-        for (String keyword : keywords) {
-            if (searchable.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String extractImageUrl(Element itemElement, String rawDescription, String articleUrl) {
+    private String extractImageUrl(Element itemElement, String rawDescription) {
         String fromBingImage = normalizeImageUrl(textContent(itemElement, "News:Image", ""));
         if (!fromBingImage.isBlank()) {
             return fromBingImage;
@@ -380,17 +438,7 @@ public class ExternalNewsService {
             return fromEnclosure;
         }
 
-        String fromDescription = normalizeImageUrl(extractFromDescriptionImage(rawDescription));
-        if (!fromDescription.isBlank()) {
-            return fromDescription;
-        }
-
-        String fromArticleMeta = normalizeImageUrl(extractImageFromArticleMeta(articleUrl));
-        if (!fromArticleMeta.isBlank()) {
-            return fromArticleMeta;
-        }
-
-        return "";
+        return normalizeImageUrl(extractFromDescriptionImage(rawDescription));
     }
 
     private String extractFromMediaNodes(Element itemElement, String tagName) {
@@ -749,26 +797,12 @@ public class ExternalNewsService {
     }
 
     /**
-     * Clears cached feeds for all countries except the active one.
-     *
-     * @param requestedCountry selected country context
+     * Drops expired cache entries. Replaces the old behaviour of wiping every
+     * other country's cache on each request, which made users in different
+     * countries evict each other's feeds.
      */
-    private void invalidateCacheForCountry(String requestedCountry) {
-        // BUG 5 FIX: null/blank country maps to "unknown" instead of "philippines" so cache
-        // invalidation never silently scopes to the PH cache segment for unresolved users.
-        String normalizedCountry = (requestedCountry == null || requestedCountry.isBlank())
-                ? "unknown"  // was "philippines" — safe sentinel for unresolved location
-                : requestedCountry.trim().toLowerCase(Locale.ROOT);
-
-        cacheByLocation.entrySet().removeIf((entry) -> {
-            String key = entry.getKey();
-            int separator = key.lastIndexOf('|');
-            if (separator < 0 || separator + 1 >= key.length()) {
-                return false;
-            }
-            String countrySegment = key.substring(separator + 1).trim().toLowerCase(Locale.ROOT);
-            return !countrySegment.equals(normalizedCountry);
-        });
+    private void evictExpiredCacheEntries() {
+        cacheByLocation.entrySet().removeIf(entry -> isExpired(entry.getValue().cachedAt()));
     }
 
     private boolean isExpired(Instant cachedAt) {
@@ -776,5 +810,10 @@ public class ExternalNewsService {
     }
 
     private record CacheEntry(List<NewsFeedItem> items, Instant cachedAt) {
+    }
+
+    /** One parsed RSS item before scope filtering, trimming and image lookup. */
+    private record RssItem(String title, String description, String source, String feedCategory,
+                           ZonedDateTime publishedAt, String articleUrl, String imageUrl) {
     }
 }

@@ -18,8 +18,9 @@
  *      Step 1 — single name match  → use it unchanged.
  *      Step 2 — multiple matches   → pick the one with the smallest haversine
  *                                    distance to the raw GPS fix.
- *      Step 3 — zero name matches  → nearest-location fallback across all
- *                                    KNOWN_PH_LOCATIONS entries that have coords.
+ *      Step 3 — zero name matches  → keep the geocoder's name unchanged
+ *                                    (nearest-entry snapping was removed: it
+ *                                    renamed every unlisted city).
  *      Step 4 — table entirely empty / no coords → return the original name
  *                                    unchanged (safe pass-through).
  *
@@ -129,8 +130,7 @@ export function haversineDistance(lat1, lng1, lat2, lng2) {
  * Step 2 — Multiple name matches → pick the candidate with the smallest
  *           haversine distance to (rawLat, rawLng). Candidates without
  *           coordinates are skipped.
- * Step 3 — Zero name matches → return the KNOWN_PH_LOCATIONS entry with the
- *           smallest overall distance (nearest-location fallback).
+ * Step 3 — Zero name matches → return cityName unchanged.
  * Step 4 — Table has no entries with coordinates → return cityName unchanged.
  *
  * @param {string} cityName - City/municipality name returned by Nominatim.
@@ -172,24 +172,10 @@ function disambiguateByCoords(cityName, rawLat, rawLng) {
     // All candidates lacked coordinates — fall through to Step 3
   }
 
-  // Step 3: zero name matches → nearest location in the whole table
-  const entriesWithCoords = KNOWN_PH_LOCATIONS.filter(
-    (entry) => typeof entry.lat === 'number' && typeof entry.lng === 'number'
-  );
-  if (entriesWithCoords.length === 0) {
-    return cityName; // Step 4: no coordinate data at all — safe pass-through
-  }
-
-  let nearest = null;
-  let nearestDist = Infinity;
-  for (const entry of entriesWithCoords) {
-    const dist = haversineDistance(rawLat, rawLng, entry.lat, entry.lng);
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearest = entry;
-    }
-  }
-  return nearest ? nearest.name : cityName;
+  // Step 3: no name match → keep the geocoder's name. Snapping to the nearest
+  // table entry renamed every unlisted city (Bacoor became "Las Piñas", Imus
+  // became "Carmona"), putting users in the wrong local feed.
+  return cityName;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -267,19 +253,21 @@ export async function resolveLocationLabel(latitude, longitude, signal) {
  * When Nominatim returns a city name that matches multiple entries in
  * KNOWN_PH_LOCATIONS, the raw GPS lat/lng is used to select the geographically
  * closest candidate — fixing the Naga-Cebu / Naga-Camarines Sur confusion.
- * When no name match is found, the nearest known Philippine city is used as a
- * fallback (Step 3 in disambiguateByCoords).
+ * When no name matches, Nominatim's own name is kept.
  *
- * The output schema is unchanged: { area, country, label, latitude, longitude }.
+ * Names are requested in English (accept-language=en) so GPS results match the
+ * English names the IP lookup returns ("Philippines", not "Pilipinas").
  *
  * @param {number} latitude
  * @param {number} longitude
  * @param {AbortSignal} signal
- * @returns {Promise<{ area: string, country: string, label: string, latitude: number, longitude: number }>}
+ * @returns {Promise<{ area: string, country: string, label: string, latitude: number, longitude: number } | null>}
+ *   null when the lookup fails or the address has no usable area/country — callers
+ *   must treat that as "unknown" instead of storing a placeholder location.
  */
 export async function resolveLocationDetails(latitude, longitude, signal) {
-  const fallback = fallbackLocationFromCoordinates(latitude, longitude);
-  const cacheKey = `newshub.geocode.${latitude.toFixed(2)}.${longitude.toFixed(2)}`;
+  // v2: earlier entries could hold localized names or the "Unknown Area" placeholder.
+  const cacheKey = `newshub.geocode.v2.${latitude.toFixed(2)}.${longitude.toFixed(2)}`;
   const cacheTtlMs = 86400000;
 
   try {
@@ -305,6 +293,7 @@ export async function resolveLocationDetails(latitude, longitude, signal) {
       lon: String(longitude),
       zoom: '10',
       addressdetails: '1',
+      'accept-language': 'en',
     });
 
     const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
@@ -313,19 +302,17 @@ export async function resolveLocationDetails(latitude, longitude, signal) {
     });
 
     if (!response.ok) {
-      return {
-        area: fallback.area,
-        country: fallback.country,
-        label: `${fallback.area}, ${fallback.country}`,
-        latitude,
-        longitude,
-      };
+      return null;
     }
 
     const payload = await response.json();
     const address = payload?.address || {};
-    const rawArea = address.city || address.town || address.state || address.region || fallback.area;
-    const country = address.country || fallback.country;
+    const rawArea = (address.city || address.town || address.municipality || address.county
+      || address.state || address.region || '').trim();
+    const country = (address.country || '').trim();
+    if (!rawArea || !country) {
+      return null;
+    }
 
     // NEW: run the 4-step disambiguation only for Philippine results where
     // same-name city conflicts are most prevalent. For non-PH results, the
@@ -353,13 +340,7 @@ export async function resolveLocationDetails(latitude, longitude, signal) {
     }
     return details;
   } catch {
-    return {
-      area: fallback.area,
-      country: fallback.country,
-      label: `${fallback.area}, ${fallback.country}`,
-      latitude,
-      longitude,
-    };
+    return null;
   }
 }
 

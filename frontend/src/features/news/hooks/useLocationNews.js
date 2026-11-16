@@ -1,250 +1,209 @@
 /**
  * useLocationNews.js
  *
- * Changes:
- * - ipPromise now calls https://ipapi.co/json/ directly instead of the Spring Boot
- *   /api/location/detect proxy on Render. The free Render web service sleeps after
- *   inactivity and often returns 502 on cold start; ipapi.co from the browser avoids
- *   that hop while GPS + IP race logic is unchanged.
+ * Resolves the user's base location (manual pick, or browser GPS / IP lookup),
+ * persists the selected scope (Local / National / International) and loads the
+ * paginated news feed for it.
+ *
+ * Location priority: manual pick > GPS (reverse geocoded) > IP lookup.
+ * The last successfully detected location is remembered so returning users see
+ * their feed immediately while detection refreshes in the background.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchNewsByLocation } from '../services/newsApi';
 import {
   APPROXIMATE_LOCAL_LABEL,
+  LAST_RESOLVED_LOCATION_STORAGE_KEY,
   LOCATION_OPTIONS,
   LOCATION_STORAGE_KEY,
   USER_LOCATION_CURRENT,
   USER_LOCATION_STORAGE_KEY,
 } from '../../shared/constants/locations';
 import { resolveLocationDetails, toValidLocationMode } from '../../shared/utils/locationResolver';
+import { parseStoredLocation } from '../../shared/utils/newsLocationContext';
 
-/**
- * Returns default location details for unsupported geolocation scenarios.
- *
- * BUG 7 FIX: was 'Metro District' / 'Philippines' — hardcoded PH defaults caused every
- * new user without a stored location to seed the DB with Philippines-tagged articles and
- * contaminate the International pool for PH users.
- * Blank country/area is the safe sentinel: the backend returns List.of() for blank country,
- * and the loadLocationNews() guard (Fix 5e below) prevents a blank-country fetch from firing.
- *
- * @returns {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null }}
- */
-function fallbackUserLocation() {
-  return {
-    area: '',     // was 'Metro District' — blank signals unresolved state
-    country: '',  // was 'Philippines'    — blank prevents PH-scoped DB seeding
-    label: APPROXIMATE_LOCAL_LABEL, // now 'Location not yet resolved' (BUG 7 FIX)
-    latitude: null,
-    longitude: null,
-  };
+const PAGE_SIZE = 4;
+const FEED_CACHE_TTL_MS = 300000;
+
+/** Blank details mean "not resolved yet"; the backend returns nothing for a blank country. */
+function unresolvedLocation() {
+  return { area: '', country: '', label: APPROXIMATE_LOCAL_LABEL, latitude: null, longitude: null };
 }
 
-/**
- * Parses and validates a manually saved location payload.
- * @returns {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null } | null}
- */
+function readStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Private mode / quota — location still works for this page view.
+  }
+}
+
+/** Manually picked location, or null when the user chose "Use Current". */
 function getStoredManualLocation() {
-  const raw = window.localStorage.getItem(USER_LOCATION_STORAGE_KEY);
+  const raw = readStorage(USER_LOCATION_STORAGE_KEY);
   if (!raw || raw === USER_LOCATION_CURRENT) {
     return null;
   }
+  return parseStoredLocation(raw);
+}
 
+/** Last location that GPS or IP detection resolved successfully. */
+function getLastResolvedLocation() {
+  return parseStoredLocation(readStorage(LAST_RESOLVED_LOCATION_STORAGE_KEY));
+}
+
+/** Looks up an approximate location from the visitor's IP address. */
+async function lookupIpLocation(signal) {
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed?.area || !parsed?.country || !parsed?.label) {
-      return null;
-    }
+    const res = await fetch('https://ipapi.co/json/', { signal });
+    if (!res.ok) return null;
+    const ip = await res.json();
+    const area = (ip.city || ip.region || '').trim();
+    const country = (ip.country_name || '').trim();
+    if (!area || !country) return null;
     return {
-      area: String(parsed.area),
-      country: String(parsed.country),
-      label: String(parsed.label),
-      latitude: typeof parsed.latitude === 'number' ? parsed.latitude : null,
-      longitude: typeof parsed.longitude === 'number' ? parsed.longitude : null,
+      area,
+      country,
+      label: `${area}, ${country}`,
+      latitude: typeof ip.latitude === 'number' ? ip.latitude : null,
+      longitude: typeof ip.longitude === 'number' ? ip.longitude : null,
     };
   } catch {
     return null;
   }
 }
 
-/**
- * Resolves and persists user base location plus selected news filter mode.
- * @returns {{
- * selectedLocation: string,
- * locationLabel: string,
- * isDetecting: boolean,
- * locationError: string,
- * newsArticles: Array,
- * isNewsLoading: boolean,
- * newsError: string,
- * setSelectedLocation: (location: string) => void,
- * setUserLocationFromSearch: (details: { area: string, country: string, label: string, latitude: number | null, longitude: number | null }) => void,
- * useCurrentUserLocation: () => void,
- * userLocationDisplayLabel: string,
- * isUsingCurrentLocation: boolean
- * }}
- */
-export function useLocationNews() {
-  const storedManualLocation = getStoredManualLocation();
-  const [selectedLocation, setSelectedLocationState] = useState(() => {
-    const stored = window.localStorage.getItem(LOCATION_STORAGE_KEY);
-    return toValidLocationMode(stored, LOCATION_OPTIONS);
+/** Reads browser GPS and reverse geocodes it; resolves null on denial, timeout or geocode failure. */
+function lookupGpsLocation() {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          resolve(await resolveLocationDetails(latitude, longitude, new AbortController().signal));
+        } catch {
+          resolve(null);
+        }
+      },
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+    );
   });
-  const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState(() => !storedManualLocation);
-  const [locationLabel, setLocationLabel] = useState('');
+}
+
+function sameLocation(a, b) {
+  return Boolean(a && b)
+    && a.area.toLowerCase() === b.area.toLowerCase()
+    && a.country.toLowerCase() === b.country.toLowerCase();
+}
+
+/**
+ * @param {{ loadNews?: boolean }} [options] Pass loadNews: false when only the
+ *   location (for the header) is needed, e.g. on non-home pages.
+ */
+export function useLocationNews({ loadNews = true } = {}) {
+  const [selectedLocation, setSelectedLocationState] = useState(() =>
+    toValidLocationMode(readStorage(LOCATION_STORAGE_KEY), LOCATION_OPTIONS)
+  );
+  const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState(() => !getStoredManualLocation());
+  const [userLocationDetails, setUserLocationDetails] = useState(
+    () => getStoredManualLocation() || getLastResolvedLocation() || unresolvedLocation()
+  );
   const [isDetecting, setIsDetecting] = useState(false);
   const [locationError, setLocationError] = useState('');
-  const [userLocationDetails, setUserLocationDetails] = useState(storedManualLocation || fallbackUserLocation());
+  // Bumped by "Use Current" so detection re-runs even when already in current mode.
+  const [detectRequest, setDetectRequest] = useState(0);
+
   const [newsArticles, setNewsArticles] = useState([]);
-  const [isNewsLoading, setIsNewsLoading] = useState(true);
+  const [isNewsLoading, setIsNewsLoading] = useState(loadNews);
   const [newsError, setNewsError] = useState('');
-  // BUG 5e FIX: tracks whether we're waiting for the user's location to resolve.
-  // While true the news skeleton stays visible (showInitialNewsLoading = isNewsLoading && articles===0
-  // would collapse to false if we set isNewsLoading=false on a blank-country early return).
-  const [isLocationPending, setIsLocationPending] = useState(
-    // Pending if initial location details are blank (GPS hasn't resolved yet).
-    !storedManualLocation && !userLocationDetails.country
-  );
-  // Pagination state
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  // Identifies the feed currently on screen; a "See More" response for an older
+  // location/scope is discarded instead of being appended to the new feed.
+  const feedKeyRef = useRef('');
+  const loadMoreAbortRef = useRef(null);
 
-  /**
-   * Updates selected scope mode and persists it.
-   * @param {string} nextLocation
-   */
+  const hasLocation = Boolean(userLocationDetails.country && userLocationDetails.area);
+  const hasLocationRef = useRef(hasLocation);
+  hasLocationRef.current = hasLocation;
+  // Waiting on detection (no location yet and no failure reported).
+  const isLocationPending = !hasLocation && !locationError;
+  // Detection finished without a result: the user has to pick a location.
+  const needsManualLocation = !hasLocation && Boolean(locationError) && !isDetecting;
+
   const setSelectedLocation = (nextLocation) => {
     const valid = toValidLocationMode(nextLocation, LOCATION_OPTIONS);
-    window.localStorage.setItem(LOCATION_STORAGE_KEY, valid);
+    writeStorage(LOCATION_STORAGE_KEY, valid);
     setSelectedLocationState(valid);
   };
 
-  /**
-   * Sets manual user location from a searched suggestion.
-   * @param {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null }} details
-   */
   const setUserLocationFromSearch = (details) => {
     setIsUsingCurrentLocation(false);
+    setIsDetecting(false);
     setLocationError('');
     setUserLocationDetails(details);
-    window.localStorage.setItem(USER_LOCATION_STORAGE_KEY, JSON.stringify(details));
+    writeStorage(USER_LOCATION_STORAGE_KEY, JSON.stringify(details));
   };
 
-  /** Switches user location mode back to browser geolocation. */
-  const useCurrentUserLocation = () => {
+  const useCurrentUserLocation = useCallback(() => {
+    writeStorage(USER_LOCATION_STORAGE_KEY, USER_LOCATION_CURRENT);
     setIsUsingCurrentLocation(true);
-    window.localStorage.setItem(USER_LOCATION_STORAGE_KEY, USER_LOCATION_CURRENT);
-  };
+    setDetectRequest((count) => count + 1);
+  }, []);
 
   useEffect(() => {
     if (!isUsingCurrentLocation) {
       setIsDetecting(false);
-      return;
+      return undefined;
     }
 
     const abortController = new AbortController();
-    if (!navigator.geolocation) {
-      setUserLocationDetails(fallbackUserLocation());
-      setLocationError('Geolocation not supported. Using approximate location.');
-      setIsDetecting(false);
-      return () => abortController.abort();
-    }
-
     setIsDetecting(true);
     setLocationError('');
 
-    /*
-     * Changes to this geolocation block:
-     * 1. GPS and IP resolve in parallel; first non-null result wins.
-     * 2. GPS timeout reduced to 10000 ms.
-     * 3. Nominatim uses a separate AbortController so cleanup does not cancel it.
-     */
-    const ipPromise = (async () => {
-      try {
-        const res = await fetch('https://ipapi.co/json/', {
-          signal: abortController.signal,
-        });
-        if (!res.ok) return null;
-        const ip = await res.json();
-        const area = (ip.city || ip.region || '').trim();
-        const country = (ip.country_name || '').trim();
-        if (!area || !country) return null;
-        return {
-          area,
-          country,
-          label: `${area}, ${country}`,
-          latitude: typeof ip.latitude === 'number' ? ip.latitude : null,
-          longitude: typeof ip.longitude === 'number' ? ip.longitude : null,
-        };
-      } catch {
-        return null;
-      }
-    })();
-
-    const gpsPromise = new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          const nominatimAbort = new AbortController();
-          try {
-            const details = await resolveLocationDetails(latitude, longitude, nominatimAbort.signal);
-            resolve(details);
-          } catch {
-            resolve(null);
-          }
-        },
-        () => resolve(null),
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
-      );
-    });
-
-    let firstResult = null;
-    let hasResolved = false;
-    const acceptResult = (result) => {
-      if (hasResolved || !result || abortController.signal.aborted) return;
-      hasResolved = true;
-      firstResult = result;
+    let accepted = null;
+    const accept = (result, { override }) => {
+      if (!result || abortController.signal.aborted) return;
+      if (accepted && (!override || sameLocation(accepted, result))) return;
+      accepted = result;
       setUserLocationDetails(result);
-      setLocationError('');
-      setIsDetecting(false);
+      writeStorage(LAST_RESOLVED_LOCATION_STORAGE_KEY, JSON.stringify(result));
     };
 
-    ipPromise.then(acceptResult).catch(() => {});
-    gpsPromise.then(acceptResult).catch(() => {});
+    const ipPromise = lookupIpLocation(abortController.signal);
+    const gpsPromise = lookupGpsLocation();
 
-    gpsPromise
-      .then((result) => {
-        if (!result || abortController.signal.aborted) return;
-        if (
-          !firstResult ||
-          result.label !== firstResult.label ||
-          result.latitude !== firstResult.latitude ||
-          result.longitude !== firstResult.longitude
-        ) {
-          setUserLocationDetails(result);
-          setLocationError('');
-        }
-        setIsDetecting(false);
-      })
-      .catch(() => {});
+    // IP usually answers first; GPS is more precise, so a valid GPS result may
+    // replace an IP result, but never the other way round.
+    ipPromise.then((result) => accept(result, { override: false }));
+    gpsPromise.then((result) => accept(result, { override: true }));
 
     Promise.allSettled([ipPromise, gpsPromise]).then(() => {
-      if (hasResolved || abortController.signal.aborted) return;
-      setUserLocationDetails(fallbackUserLocation());
-      setLocationError(
-        'Could not detect location automatically. ' +
-        'Search for your city using the search box.'
-      );
+      if (abortController.signal.aborted) return;
       setIsDetecting(false);
+      // A remembered location stays in use silently when re-detection fails.
+      if (!accepted && !hasLocationRef.current) {
+        setLocationError('We couldn’t detect your location. Search for your city in the location box.');
+      }
     });
 
     return () => abortController.abort();
-  }, [isUsingCurrentLocation]);
-
-  useEffect(() => {
-    setLocationLabel(userLocationDetails.label);
-  }, [userLocationDetails]);
+  }, [isUsingCurrentLocation, detectRequest]);
 
   const locationRequest = useMemo(
     () => ({
@@ -258,45 +217,37 @@ export function useLocationNews() {
   );
 
   useEffect(() => {
+    if (!loadNews) return undefined;
     const abortController = new AbortController();
+    const feedKey = [locationRequest.location, locationRequest.country, locationRequest.area].join('|');
+    feedKeyRef.current = feedKey;
+    if (loadMoreAbortRef.current) loadMoreAbortRef.current.abort();
 
-    /** Initial page-0 load with cancellation safety. Resets all pagination state. */
-    async function loadLocationNews() {
-      // BUG 5e FIX: do not fire a backend request when country is blank (location not yet
-      // resolved). A blank country would reach ExternalNewsService with null country and
-      // previously triggered a Philippines RSS fetch. Keep isNewsLoading=true and set
-      // isLocationPending=true so the skeleton stays visible while GPS resolves.
-      if (!locationRequest.country || !locationRequest.location) {
-        setIsLocationPending(true); // show "Detecting your location..." skeleton
-        setIsNewsLoading(true);     // keep skeleton visible (showInitialNewsLoading stays true)
-        return; // wait for GPS / manual location selection — do not hit the backend
+    async function loadFirstPage() {
+      setPage(0);
+      setIsLoadingMore(false);
+
+      if (!locationRequest.country || !locationRequest.area || !locationRequest.location) {
+        // Nothing to fetch until a location exists; pending/needsManualLocation drive the UI.
+        setNewsArticles([]);
+        setHasMore(false);
+        setTotalCount(0);
+        setNewsError('');
+        setIsNewsLoading(false);
+        return;
       }
 
-      // Location resolved — clear the pending flag and proceed with the fetch.
-      setIsLocationPending(false);
-      setPage(0); // reset to first page on any location change
-
-      const cacheKey = `newshub.articles.cache.${[
-        locationRequest.location,
-        locationRequest.country,
-        locationRequest.area,
-        0,
-      ].join('|')}`;
-      const cacheTtlMs = 300000;
+      const cacheKey = `newshub.articles.cache.${feedKey}|0`;
       let cachedPayload = null;
-
       try {
-        const raw = window.localStorage.getItem(cacheKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const isFresh = typeof parsed?.cachedAt === 'number' && (Date.now() - parsed.cachedAt) < cacheTtlMs;
-          if (isFresh && Array.isArray(parsed?.items)) {
-            cachedPayload = {
-              items: parsed.items.slice(0, 8),
-              hasMore: Boolean(parsed.hasMore),
-              totalCount: Number.isFinite(parsed.totalCount) ? parsed.totalCount : 0,
-            };
-          }
+        const parsed = JSON.parse(readStorage(cacheKey) || 'null');
+        const isFresh = typeof parsed?.cachedAt === 'number' && Date.now() - parsed.cachedAt < FEED_CACHE_TTL_MS;
+        if (isFresh && Array.isArray(parsed?.items)) {
+          cachedPayload = {
+            items: parsed.items.slice(0, PAGE_SIZE),
+            hasMore: Boolean(parsed.hasMore),
+            totalCount: Number.isFinite(parsed.totalCount) ? parsed.totalCount : 0,
+          };
         }
       } catch {
         cachedPayload = null;
@@ -315,32 +266,23 @@ export function useLocationNews() {
         setNewsError('');
         setIsNewsLoading(true);
       }
+
       try {
         const result = await fetchNewsByLocation({
           ...locationRequest,
           page: 0,
-          size: 4,
+          size: PAGE_SIZE,
           signal: abortController.signal,
         });
-        if (!abortController.signal.aborted) {
-          setNewsArticles(result.items);
-          setHasMore(result.hasMore);
-          setTotalCount(result.totalCount);
-          setNewsError(result.items.length === 0 ? 'No current-year news found for this location yet.' : '');
-          try {
-            window.localStorage.setItem(
-              cacheKey,
-              JSON.stringify({
-                cachedAt: Date.now(),
-                items: result.items.slice(0, 8),
-                hasMore: result.hasMore,
-                totalCount: result.totalCount,
-              })
-            );
-          } catch {
-            // Ignore cache write failures (private mode, quota, etc.).
-          }
-        }
+        if (abortController.signal.aborted) return;
+        setNewsArticles(result.items);
+        setHasMore(result.hasMore);
+        setTotalCount(result.totalCount);
+        setNewsError(result.items.length === 0 ? 'No current-year news found for this location yet.' : '');
+        writeStorage(
+          cacheKey,
+          JSON.stringify({ cachedAt: Date.now(), items: result.items, hasMore: result.hasMore, totalCount: result.totalCount })
+        );
       } catch (error) {
         if (error?.name !== 'AbortError' && !abortController.signal.aborted && !cachedPayload) {
           setNewsArticles([]);
@@ -353,38 +295,45 @@ export function useLocationNews() {
       }
     }
 
-    loadLocationNews();
+    loadFirstPage();
     return () => abortController.abort();
-  }, [locationRequest]);
+  }, [locationRequest, loadNews]);
 
-  /**
-   * Fetches the next page and APPENDS items to the existing list.
-   * Uses isLoadingMore (not isNewsLoading) so the full skeleton is never shown.
-   */
+  /** Fetches the next page and appends it, unless the location changed meanwhile. */
   const loadMore = async () => {
     if (!hasMore || isLoadingMore) return;
+    const requestKey = feedKeyRef.current;
     const nextPage = page + 1;
+    const controller = new AbortController();
+    loadMoreAbortRef.current = controller;
     setIsLoadingMore(true);
     try {
       const result = await fetchNewsByLocation({
         ...locationRequest,
         page: nextPage,
-        size: 4,
+        size: PAGE_SIZE,
+        signal: controller.signal,
       });
-      setNewsArticles((prev) => [...prev, ...result.items]); // APPEND — never replace
+      if (controller.signal.aborted || feedKeyRef.current !== requestKey) return;
+      setNewsArticles((prev) => {
+        const seen = new Set(prev.map((item) => String(item.id)));
+        return [...prev, ...result.items.filter((item) => !seen.has(String(item.id)))];
+      });
       setHasMore(result.hasMore);
       setTotalCount(result.totalCount);
       setPage(nextPage);
     } catch {
-      // Silently swallow load-more errors; the existing articles remain visible.
+      // Keep the articles already on screen.
     } finally {
-      setIsLoadingMore(false);
+      if (feedKeyRef.current === requestKey) {
+        setIsLoadingMore(false);
+      }
     }
   };
 
   return {
     selectedLocation,
-    locationLabel,
+    locationLabel: userLocationDetails.label,
     isDetecting,
     locationError,
     newsArticles,
@@ -395,13 +344,10 @@ export function useLocationNews() {
     useCurrentUserLocation,
     userLocationDisplayLabel: userLocationDetails.label,
     isUsingCurrentLocation,
-    // Exposed so consumers can build a locationContext for search filtering.
     area: userLocationDetails.area,
     country: userLocationDetails.country,
-    // BUG 5e FIX: expose pending flag so Home.jsx / HomeNewsGrid can show the
-    // "Detecting your location..." spinner while country is not yet resolved.
     isLocationPending,
-    // Pagination
+    needsManualLocation,
     hasMore,
     isLoadingMore,
     loadMore,

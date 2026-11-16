@@ -5,7 +5,9 @@ import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.application.ExternalNewsService;
 import com.newshub.backend.news.application.NewsService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -77,6 +79,21 @@ public class NewsController {
             return List.of();
         }
         return newsService.searchNews(q, location, area, country);
+    }
+
+    /**
+     * Returns one persisted article by id, independent of the caller's location.
+     * Used when an article link is opened directly (page refresh, shared link,
+     * notification) and the article is not in the current feed page.
+     *
+     * @param id article id (digits only, so /search, /content and /image-proxy never match)
+     * @return the article, or 404 when it does not exist
+     */
+    @GetMapping("/{id:\\d+}")
+    public ResponseEntity<NewsFeedItem> getArticleById(@PathVariable long id) {
+        return newsService.getArticleById(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**

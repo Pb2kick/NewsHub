@@ -173,7 +173,8 @@ export async function searchNews({ query = '', location, area, country, signal }
     `${NEWS_API_BASE_URL}/api/news/search?${params.toString()}`,
     { signal }
   );
-  if (!response.ok) return [];
+  // Throw so the UI can say "search unavailable" instead of a misleading "no results".
+  if (!response.ok) throw new Error(`Search failed. Status: ${response.status}`);
   const payload = await response.json();
   return Array.isArray(payload) ? payload : [];
 }

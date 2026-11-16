@@ -54,7 +54,8 @@ export default function Home() {
     hasMore,
     isLoadingMore,
     loadMore,
-    isLocationPending, // BUG 5e FIX: true while GPS/country hasn't resolved yet
+    isLocationPending, // true while detection runs and no location is known yet
+    needsManualLocation, // detection failed and nothing is remembered
   } = useLocationNews();
   const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
   const {
@@ -105,7 +106,12 @@ export default function Home() {
   const featuredArticle = filteredArticles[0];
   const otherArticles = useMemo(() => filteredArticles.slice(1), [filteredArticles]);
   const topCategories = NEWS_CATEGORY_TABS;
-  const showInitialNewsLoading = isNewsLoading && newsArticles.length === 0;
+  const showInitialNewsLoading = (isNewsLoading || isLocationPending) && newsArticles.length === 0;
+  // Stable identity: a new object every render re-triggered the search request on each keystroke.
+  const locationContext = useMemo(
+    () => ({ selectedLocation, area, country }),
+    [selectedLocation, area, country]
+  );
 
   /** Handles top header category actions including elections navigation. */
   const handleSelectNewsCategory = (nextCategory) => {
@@ -146,7 +152,7 @@ export default function Home() {
         setSearchQuery={setSearchQuery}
         isSearchOpen={isSearchOpen}
         setIsSearchOpen={setIsSearchOpen}
-        locationContext={{ selectedLocation, area, country }}
+        locationContext={locationContext}
         notifications={notifications}
         unreadCount={unreadCount}
         markOneRead={markOneRead}
@@ -155,7 +161,12 @@ export default function Home() {
       />
 
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 w-full">
-        <HomeHeroSection showInitialNewsLoading={showInitialNewsLoading} featuredArticle={featuredArticle} hasImage={hasImage} />
+        <HomeHeroSection
+          showInitialNewsLoading={showInitialNewsLoading}
+          featuredArticle={featuredArticle}
+          hasImage={hasImage}
+          needsManualLocation={needsManualLocation}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-12">
           <HomeNewsGrid
@@ -172,7 +183,8 @@ export default function Home() {
             hasMore={hasMore}
             isLoadingMore={isLoadingMore}
             loadMore={loadMore}
-            isLocationPending={isLocationPending} // BUG 5e FIX: spinner while country unresolved
+            isLocationPending={isLocationPending}
+            needsManualLocation={needsManualLocation}
           />
           <HomeSidebar activeElections={activeElections} />
         </div>
