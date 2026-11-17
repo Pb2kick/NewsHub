@@ -99,6 +99,27 @@ class NewsQueryHelpersTest {
     }
 
     @Test
+    void tsQueryIsWordOrderFreeWithPrefixOnTheLastWord() {
+        assertEquals("cruise & ship & cras:*", NewsService.buildTsQuery("Cruise ship cras"));
+        assertEquals("pelicans:*", NewsService.buildTsQuery("  Pelicans' "));
+    }
+
+    @Test
+    void tsQueryOperatorsInUserInputAreDropped() {
+        assertEquals("a & b:*", NewsService.buildTsQuery("a & | ! ( ) :* b"));
+        assertEquals("", NewsService.buildTsQuery("&|!():*"));
+        assertEquals("", NewsService.buildTsQuery(null));
+    }
+
+    @Test
+    void categoryTabsMapToStoredValues() {
+        assertEquals("Politics", NewsService.normalizeCategory("politics"));
+        assertEquals("", NewsService.normalizeCategory("Top Stories"));
+        assertEquals("", NewsService.normalizeCategory("Sports"));
+        assertEquals("", NewsService.normalizeCategory(null));
+    }
+
+    @Test
     void areaTokenDropsAdministrativePrefixes() {
         assertEquals("manila", ExternalNewsService.areaMatchToken("City of Manila"));
         assertEquals("quezon city", ExternalNewsService.areaMatchToken("Quezon City"));

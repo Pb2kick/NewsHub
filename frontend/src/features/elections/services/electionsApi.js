@@ -65,6 +65,43 @@ export async function getElections() {
   }
 }
 
+let searchableCache = null;
+const SEARCHABLE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Real elections and their candidates for global search, loaded once and
+ * cached for 5 minutes (search used to filter the mockData.js arrays, so it
+ * never found the elections shown in the sidebar).
+ *
+ * @returns {Promise<{ elections: Array, candidates: Array }>} empty lists on failure
+ */
+export async function getSearchableElections() {
+  if (searchableCache && Date.now() - searchableCache.loadedAt < SEARCHABLE_TTL_MS) {
+    return searchableCache.data;
+  }
+  const elections = (await getElections()) || [];
+  let candidates = [];
+  if (elections.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('id,election_id,name,party,position')
+        .in('election_id', elections.map((election) => election.id));
+      if (!error) {
+        candidates = (data || []).map(mapCandidate).filter(Boolean);
+      }
+    } catch {
+      candidates = [];
+    }
+  }
+  const data = { elections, candidates };
+  // Only cache successful loads so a temporary failure is retried on the next search.
+  if (elections.length > 0) {
+    searchableCache = { data, loadedAt: Date.now() };
+  }
+  return data;
+}
+
 export async function getElectionCandidateCount(electionId) {
   if (!electionId) return 0;
   try {

@@ -131,7 +131,9 @@ function isLegacyLocation(details) {
  * @param {{ loadNews?: boolean }} [options] Pass loadNews: false when only the
  *   location (for the header) is needed, e.g. on non-home pages.
  */
-export function useLocationNews({ loadNews = true } = {}) {
+export function useLocationNews({ loadNews = true, category = null } = {}) {
+  // "Top Stories" (or nothing) means every category.
+  const categoryFilter = category && category !== 'Top Stories' ? category : null;
   const [selectedLocation, setSelectedLocationState] = useState(() =>
     toValidLocationMode(readStorage(LOCATION_STORAGE_KEY), LOCATION_OPTIONS)
   );
@@ -248,8 +250,11 @@ export function useLocationNews({ loadNews = true } = {}) {
       countryCode: userLocationDetails.countryCode,
       area: userLocationDetails.area,
       region: userLocationDetails.region,
+      // Filtered in the database, so a tab shows a full page of its own stories
+      // instead of filtering the few articles already loaded.
+      category: categoryFilter,
     }),
-    [selectedLocation, userLocationDetails]
+    [selectedLocation, userLocationDetails, categoryFilter]
   );
 
   useEffect(() => {
@@ -260,6 +265,7 @@ export function useLocationNews({ loadNews = true } = {}) {
       locationRequest.country,
       locationRequest.area,
       locationRequest.region || '',
+      locationRequest.category || '',
     ].join('|');
     feedKeyRef.current = feedKey;
     if (loadMoreAbortRef.current) loadMoreAbortRef.current.abort();

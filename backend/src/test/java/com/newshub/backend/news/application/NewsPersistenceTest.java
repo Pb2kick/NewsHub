@@ -2,6 +2,7 @@ package com.newshub.backend.news.application;
 
 import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.api.dto.NewsFeedPage;
+import com.newshub.backend.news.bootstrap.NewsSchemaMaintenance;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
@@ -15,6 +16,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -42,7 +45,7 @@ import static org.mockito.Mockito.when;
  */
 @DataJpaTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(NewsService.class)
+@Import({NewsService.class, NewsSchemaMaintenance.class})
 class NewsPersistenceTest {
 
     private static final EmbeddedPostgres POSTGRES = startPostgres();
@@ -60,6 +63,9 @@ class NewsPersistenceTest {
 
     @Autowired
     private NewsService newsService;
+
+    @Autowired
+    private NewsSchemaMaintenance schemaMaintenance;
 
     @MockitoBean
     private ExternalNewsService externalNewsService;
@@ -161,6 +167,96 @@ class NewsPersistenceTest {
 
         assertEquals("Direct link story", newsService.getArticleById(saved.getId()).orElseThrow().title());
         assertTrue(newsService.getArticleById(saved.getId() + 999).isEmpty());
+    }
+
+    @Test
+    void fullTextSearchIgnoresWordOrderAndMatchesPrefixes() {
+        repository.save(article("Tanker crash into cruise ship on the Mississippi", "United States", "New Orleans"));
+
+        assertEquals(1, newsService.searchNews("cruise ship crash", "New Orleans", null, "United States", null, 0, 8, false).size());
+        assertEquals(1, newsService.searchNews("cruis", null, null, "", null, 0, 8, false).size(), "prefix while typing");
+        assertEquals(0, newsService.searchNews("cruise ship volcano", null, null, "", null, 0, 8, false).size());
+        assertTrue(newsService.searchNews("& | ! ( ) :*", null, null, "", null, 0, 8, false).isEmpty(),
+                "tsquery operators in user input never reach PostgreSQL");
+    }
+
+    @Test
+    void searchRanksTheUsersAreaThenCountryAndRemovesDuplicateCopies() {
+        repository.save(article("Flood warning issued elsewhere", "Japan", "Osaka"));
+        repository.save(article("Flood warning issued nationwide", "Philippines", null));
+        repository.save(article("Flood warning issued for Palo", "Philippines", "Palo, Leyte"));
+        repository.save(article("Flood warning issued for Palo", "Philippines", null)); // same story, National copy
+
+        List<NewsFeedItem> results = newsService.searchNews("flood warning", "Palo", "Leyte", "Philippines", "PH", 0, 8, false);
+
+        assertEquals(List.of("Flood warning issued for Palo", "Flood warning issued nationwide", "Flood warning issued elsewhere"),
+                results.stream().map(NewsFeedItem::title).toList());
+        assertEquals("Palo, Leyte", results.get(0).location(), "the best-placed copy is the one returned");
+    }
+
+    @Test
+    void explicitSearchFallsBackToLiveResultsStoredOutsideTheFeeds() {
+        when(externalNewsService.searchLive(anyString(), any()))
+                .thenReturn(List.of(liveItem("Volcano alert raised near Albay", "2026-11-16T09:00:00Z")));
+
+        assertTrue(newsService.searchNews("volcano alert", null, null, "Philippines", "PH", 0, 8, false).isEmpty());
+        verify(externalNewsService, never()).searchLive(anyString(), any()); // typing never calls the live source
+
+        List<NewsFeedItem> results = newsService.searchNews("volcano alert", null, null, "Philippines", "PH", 0, 8, true);
+
+        assertEquals(1, results.size());
+        verify(externalNewsService).searchLive("volcano alert", "PH");
+        assertEquals(0, repository.countNationalNews("Philippines", YEAR), "search results never appear in feeds");
+    }
+
+    @Test
+    void feedCanBeFilteredByStoredCategory() {
+        NewsArticle economy = article("Inflation slows as peso strengthens", "Philippines", null);
+        economy.setCategory("Economy");
+        NewsArticle politics = article("Senate passes budget", "Philippines", null);
+        politics.setCategory("Politics");
+        repository.saveAll(List.of(economy, politics));
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any())).thenReturn(List.of());
+
+        NewsFeedPage page = newsService.getNews("National", null, null, "Philippines", null, null, null, "Economy", 0, 10);
+
+        assertEquals(List.of("Inflation slows as peso strengthens"), page.items().stream().map(NewsFeedItem::title).toList());
+        assertEquals(1, page.totalCount());
+    }
+
+    @Test
+    void startupMaintenanceBackfillsCategoriesAndCreatesTheIndex() {
+        repository.save(article("Comelec opens voter registration for the elections", "Philippines", null));
+
+        assertEquals(1, schemaMaintenance.backfillCategories());
+        schemaMaintenance.ensureFullTextIndex(); // idempotent; must not throw on PostgreSQL
+
+        assertEquals("Elections", repository.findAll().get(0).getCategory());
+        assertEquals(0, schemaMaintenance.backfillCategories());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED) // threads must see each other's commits
+    void concurrentFirstLoadsWaitForTheSameRefresh() throws Exception {
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any())).thenAnswer(call -> {
+            Thread.sleep(400); // Bing is slow; the second request arrives meanwhile
+            return List.of(liveItem("Tacloban port reopens", "2026-11-16T07:00:00Z"));
+        });
+        try {
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+            java.util.concurrent.Callable<NewsFeedPage> load =
+                    () -> newsService.getNews("Local", null, null, "Philippines", "Tacloban", "Leyte", "PH", 0, 4);
+            java.util.concurrent.Future<NewsFeedPage> first = pool.submit(load);
+            Thread.sleep(50);
+            java.util.concurrent.Future<NewsFeedPage> second = pool.submit(load);
+
+            assertEquals(1, first.get().items().size());
+            assertEquals(1, second.get().items().size(), "the second request must not get an empty page");
+            verify(externalNewsService, times(1)).fetchLiveNews(anyString(), anyString(), any(), any(), any());
+            pool.shutdown();
+        } finally {
+            repository.deleteAll(); // committed outside the test transaction, so clean up explicitly
+        }
     }
 
     private List<NewsArticle> search(String raw) {

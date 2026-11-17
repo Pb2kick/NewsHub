@@ -47,28 +47,32 @@ public class NewsController {
             @RequestParam(required = false) String area,
             @RequestParam(required = false) String region,
             @RequestParam(required = false) String countryCode,
+            @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "4") int size
     ) {
-        return newsService.getNews(location, lat, lng, country, area, region, countryCode, page, size);
+        return newsService.getNews(location, lat, lng, country, area, region, countryCode, category, page, size);
     }
 
     /**
-     * Full-text search across persisted articles by keyword, scoped to the
-     * user's current location context.
+     * Ranked full-text search across all stored articles. Words may appear in any
+     * order and the last word matches as a prefix. Results from the caller's
+     * area, then country, rank first.
      *
-     * Location params mirror those accepted by GET /api/news so the search
-     * results respect whichever scope (Local / National / International) the
-     * user has selected in the UI.
+     * Returns an empty JSON array when q has no searchable words so the frontend
+     * can always parse the response.
      *
-     * Returns an empty JSON array when q is blank so the frontend can always
-     * safely parse the response without special-casing error status codes.
-     *
-     * @param q        raw search query string
-     * @param location scope mode: Local, National, or International
-     * @param area     resolved area/region for the Local scope
-     * @param country  resolved country for the National scope
-     * @return up to 8 matching feed items ordered by publish date descending
+     * @param q           search text
+     * @param location    ignored (kept for older clients); ranking uses area/region/country
+     * @param area        caller's city, ranked first
+     * @param region      caller's province/state (forms the Local scope key with area)
+     * @param country     caller's country, ranked second
+     * @param countryCode market for the live fallback
+     * @param page        0-based page
+     * @param size        results per page (default 8, max 50)
+     * @param live        true for explicit searches (results page): when few stored
+     *                    articles match, also search the live news source
+     * @return matching feed items, best first
      */
     @GetMapping("/search")
     public List<NewsFeedItem> searchNews(
@@ -76,12 +80,16 @@ public class NewsController {
             @RequestParam(required = false) String location,
             @RequestParam(required = false) String area,
             @RequestParam(required = false) String region,
-            @RequestParam(required = false) String country
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String countryCode,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "8") int size,
+            @RequestParam(defaultValue = "false") boolean live
     ) {
         if (q == null || q.isBlank()) {
             return List.of();
         }
-        return newsService.searchNews(q, location, area, region, country);
+        return newsService.searchNews(q, area, region, country, countryCode, page, size, live);
     }
 
     /**

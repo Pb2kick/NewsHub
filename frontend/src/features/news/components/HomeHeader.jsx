@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ChevronDown, Search } from 'lucide-react';
 import HeaderLocationSearch from './HeaderLocationSearch';
 import GlobalSearchDropdown from './GlobalSearchDropdown';
@@ -80,6 +80,7 @@ export default function HomeHeader(props) {
   // Only one results dropdown may be mounted: the desktop and mobile inputs are
   // both in the DOM (one hidden by CSS), and mounting both sent every search twice.
   const isWideScreen = useMediaQuery('(min-width: 768px)');
+  const navigate = useNavigate();
 
   function handleSearchChange(event) {
     const value = event.target.value;
@@ -91,6 +92,16 @@ export default function HomeHeader(props) {
     if (setIsSearchOpen) setIsSearchOpen(false);
     if (setSearchQuery) setSearchQuery('');
   }, [setIsSearchOpen, setSearchQuery]);
+
+  /** Enter opens the full results page (which can also search live sources). */
+  function handleSearchKeyDown(event) {
+    const query = searchQuery.trim();
+    if (event.key !== 'Enter' || query.length < 2) return;
+    event.preventDefault();
+    handleCloseDropdown();
+    event.currentTarget.blur();
+    navigate(`/search?q=${encodeURIComponent(query)}`);
+  }
 
   return (
     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40">
@@ -110,6 +121,8 @@ export default function HomeHeader(props) {
               type="text"
               value={searchQuery}
               onChange={handleSearchChange}
+              onKeyDown={handleSearchKeyDown}
+              enterKeyHint="search"
               onFocus={() => {
                 if (searchQuery.trim().length >= 2 && setIsSearchOpen) setIsSearchOpen(true);
               }}
@@ -194,6 +207,8 @@ export default function HomeHeader(props) {
               type="text"
               value={searchQuery}
               onChange={handleSearchChange}
+              onKeyDown={handleSearchKeyDown}
+              enterKeyHint="search"
               onFocus={() => {
                 if (searchQuery.trim().length >= 2 && setIsSearchOpen) setIsSearchOpen(true);
               }}

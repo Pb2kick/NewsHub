@@ -219,6 +219,17 @@ export default function GlobalSearchDropdown({ query, onClose, locationContext }
         </section>
       )}
 
+      {/* Full results page: paging, plus a live search when few stored articles match */}
+      {!isSearching && (
+        <button
+          type="button"
+          onClick={() => navigateTo(`/search?q=${encodeURIComponent(query.trim())}`)}
+          className="w-full text-left px-4 py-2.5 border-t border-slate-100 text-sm font-medium text-blue-600 hover:bg-slate-50"
+        >
+          See all results for &ldquo;{query.trim()}&rdquo;
+        </button>
+      )}
+
       {/* Bottom padding */}
       <div className="h-2" />
     </div>

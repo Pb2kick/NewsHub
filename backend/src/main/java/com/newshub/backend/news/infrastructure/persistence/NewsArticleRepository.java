@@ -222,12 +222,18 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             where lower(n.country) = lower(:country)
               and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             order by n.publishedAt desc, n.id desc
             """)
     List<NewsArticle> findNationalNewsByYear(
             @Param("country") String country,
             @Param("year") int year,
+            @Param("category") String category,
             Pageable pageable);
+
+    default List<NewsArticle> findNationalNewsByYear(String country, int year, Pageable pageable) {
+        return findNationalNewsByYear(country, year, "", pageable);
+    }
 
     /** Count for national scope.
      * BUG 2 FIX: same region IS NULL guard as findNationalNewsByYear. */
@@ -236,10 +242,16 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             where lower(n.country) = lower(:country)
               and (n.region is null or n.region = '')
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             """)
     long countNationalNews(
             @Param("country") String country,
-            @Param("year") int year);
+            @Param("year") int year,
+            @Param("category") String category);
+
+    default long countNationalNews(String country, int year) {
+        return countNationalNews(country, year, "");
+    }
 
     /** International-scope paged fetch, current year only.
      * BUG 1 FIX: replaced NOT IN (nationalCountry, domesticCountry) with a
@@ -251,12 +263,18 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             where lower(n.country) = 'international'
               and lower(n.region)  = lower(:domesticCountry)
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             order by n.publishedAt desc, n.id desc
             """)
     List<NewsArticle> findInternationalNewsByYear(
             @Param("domesticCountry") String domesticCountry,
             @Param("year") int year,
+            @Param("category") String category,
             Pageable pageable);
+
+    default List<NewsArticle> findInternationalNewsByYear(String domesticCountry, int year, Pageable pageable) {
+        return findInternationalNewsByYear(domesticCountry, year, "", pageable);
+    }
 
     /** Count for international scope.
      * BUG 1 FIX: identical WHERE clause as findInternationalNewsByYear. */
@@ -265,10 +283,16 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
             where lower(n.country) = 'international'
               and lower(n.region)  = lower(:domesticCountry)
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             """)
     long countInternationalNews(
             @Param("domesticCountry") String domesticCountry,
-            @Param("year") int year);
+            @Param("year") int year,
+            @Param("category") String category);
+
+    default long countInternationalNews(String domesticCountry, int year) {
+        return countInternationalNews(domesticCountry, year, "");
+    }
 
     /** Local/area-scope paged fetch, current year only.
      * BUG 2+3 FIX: renamed from findNationalAndRegionByYear; now matches ONLY by
@@ -277,26 +301,91 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, Long> 
     @Query("""
             select n from NewsArticle n
             where lower(n.region) = lower(:region)
-              and lower(n.country) <> 'international'
+              and lower(n.country) not in ('international', 'search')
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             order by n.publishedAt desc, n.id desc
             """)
     List<NewsArticle> findLocalNewsByYear(
             @Param("region") String region,
             @Param("year") int year,
+            @Param("category") String category,
             Pageable pageable);
+
+    default List<NewsArticle> findLocalNewsByYear(String region, int year, Pageable pageable) {
+        return findLocalNewsByYear(region, year, "", pageable);
+    }
 
         /** Count for local/area scope — region only.
          * BUG 2+3 FIX: renamed from countNationalAndRegion; consistent with findLocalNewsByYear. */
     @Query("""
             select count(n) from NewsArticle n
             where lower(n.region) = lower(:region)
-              and lower(n.country) <> 'international'
+              and lower(n.country) not in ('international', 'search')
               and year(n.publishedAt) = :year
+              and (:category = '' or n.category = :category)
             """)
     long countLocalNews(
             @Param("region") String region,
-            @Param("year") int year);
+            @Param("year") int year,
+            @Param("category") String category);
+
+    default long countLocalNews(String region, int year) {
+        return countLocalNews(region, year, "");
+    }
+
+    /** Rows saved before the category column existed (filled in at startup). */
+    List<NewsArticle> findByCategoryIsNull(Pageable pageable);
+
+    /**
+     * Ranked full-text search across every stored article.
+     *
+     * <p>{@code :tsquery} is built by NewsService from sanitized words, each with a
+     * prefix marker ("cruise:* & ship:*"), so word order does not matter and the
+     * last word matches while it is still being typed. The tsvector expression
+     * must stay identical to the GIN index created by NewsSchemaMaintenance.
+     *
+     * <p>Results are tiered by the user's context — their Local scope first, then
+     * their country, then their International and live-search pools, then the
+     * rest — and within a tier by text rank and recency. The same story stored
+     * in several scopes is returned once (its best-placed copy).
+     */
+    @Query(value = """
+            select t.id, t.title, t.summary, t.content, t.media_urls, t.source, t.source_url,
+                   t.country, t.region, t.published_at, t.user_id, t.fetched_at, t.category
+            from (
+                select s.*,
+                       row_number() over (partition by lower(s.title)
+                                          order by s.scope_tier desc, s.text_rank desc, s.id) as copy_rank
+                from (
+                    select n.*,
+                           ts_rank(to_tsvector('english', coalesce(n.title, '') || ' ' || coalesce(n.summary, '') || ' ' || coalesce(n.content, '')),
+                                   to_tsquery('english', :tsquery)) as text_rank,
+                           case
+                               when :localKey <> '' and lower(n.region) = lower(:localKey)
+                                    and lower(n.country) not in ('international', 'search') then 4
+                               when :country <> '' and lower(n.country) = lower(:country)
+                                    and (n.region is null or n.region = '') then 3
+                               when :country <> '' and lower(n.country) = lower(:country) then 2
+                               when :country <> '' and lower(n.country) in ('international', 'search')
+                                    and lower(n.region) = lower(:country) then 1
+                               else 0
+                           end as scope_tier
+                    from news n
+                    where to_tsvector('english', coalesce(n.title, '') || ' ' || coalesce(n.summary, '') || ' ' || coalesce(n.content, ''))
+                          @@ to_tsquery('english', :tsquery)
+                ) s
+            ) t
+            where t.copy_rank = 1
+            order by t.scope_tier desc, t.text_rank desc, t.published_at desc, t.id desc
+            limit :limit offset :offset
+            """, nativeQuery = true)
+    List<NewsArticle> searchFullText(
+            @Param("tsquery") String tsquery,
+            @Param("localKey") String localKey,
+            @Param("country") String country,
+            @Param("limit") int limit,
+            @Param("offset") int offset);
 
     /**
      * @deprecated Superseded by {@link #findLocalNewsByYear} (region-only).

@@ -34,11 +34,12 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     area,
     region,
     country,
+    countryCode,
   } = useLocationNews({ loadNews: false }); // header only — no feed fetch on non-home pages
   // Stable identity so the search request is not re-sent on every render.
   const locationContext = useMemo(
-    () => ({ selectedLocation, area, region, country }),
-    [selectedLocation, area, region, country]
+    () => ({ selectedLocation, area, region, country, countryCode }),
+    [selectedLocation, area, region, country, countryCode]
   );
   const {
     isProfileMenuOpen,
@@ -67,7 +68,7 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
       navigate('/elections');
       return;
     }
-    navigate('/home');
+    navigate('/home', { state: { category: nextCategory } }); // Home opens on the chosen tab
   };
 
   /** Signs out the user and redirects to login. */
