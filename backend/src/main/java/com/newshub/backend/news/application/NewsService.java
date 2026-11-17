@@ -58,8 +58,20 @@ public class NewsService {
      */
     public NewsFeedPage getNews(String location, Double latitude, Double longitude,
                                 String country, String area, int page, int size) {
+        return getNews(location, latitude, longitude, country, area, null, null, page, size);
+    }
+
+    /**
+     * @param region      province/state of the area; combined with the area into the Local
+     *                    scope key ("Naga, Cebu") so same-name places get separate feeds
+     * @param countryCode ISO alpha-2 code, passed to the live feed as its market
+     */
+    public NewsFeedPage getNews(String location, Double latitude, Double longitude,
+                                String country, String area, String region, String countryCode,
+                                int page, int size) {
         String requestedCountry = normalizeCountry(country);
-        String requestedLocation = normalizeLocation(location, area);
+        String requestedLocation = normalizeLocation(location, localScopeKey(area, region));
+        boolean isLocal = isLocalMode(location);
         int currentYear = LocalDateTime.now().getYear();
 
         if (requestedCountry.isBlank() || requestedLocation.isBlank()) {
@@ -68,7 +80,8 @@ public class NewsService {
 
         if (page == 0 && needsRefresh(requestedLocation, requestedCountry, currentYear)) {
             lastRefreshAttempt.put(scopeKey(requestedLocation, requestedCountry), Instant.now());
-            List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry);
+            List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry,
+                    isLocal ? trimToNull(area) : null, isLocal ? trimToNull(region) : null, trimToNull(countryCode));
             if (!liveNews.isEmpty()) {
                 persistExternalNews(liveNews, requestedLocation, requestedCountry);
             }
@@ -90,6 +103,12 @@ public class NewsService {
      * given phrase, scoped to the user's current location. Returns at most 8.
      */
     public List<NewsFeedItem> searchNews(String query, String location, String area, String country) {
+        return searchNews(query, location, area, null, country);
+    }
+
+    /** Region-aware search: Local results come from the same "area, region" scope as the feed. */
+    public List<NewsFeedItem> searchNews(String query, String location, String area, String region, String country) {
+        area = localScopeKey(area, region);
         if (query == null || query.isBlank()) {
             return List.of();
         }
@@ -139,6 +158,31 @@ public class NewsService {
             return trimmedArea;
         }
         return location.trim();
+    }
+
+    /**
+     * Local scope key stored in the region column: "Area, Region" when the
+     * province/state is known ("Naga, Cebu" vs. "Naga, Bicol Region"), otherwise
+     * just the area (locations saved before regions existed).
+     */
+    static String localScopeKey(String area, String region) {
+        String cleanArea = trimToNull(area);
+        String cleanRegion = trimToNull(region);
+        if (cleanArea == null) {
+            return "";
+        }
+        if (cleanRegion == null || cleanRegion.equalsIgnoreCase(cleanArea)) {
+            return cleanArea;
+        }
+        return cleanArea + ", " + cleanRegion;
+    }
+
+    private static boolean isLocalMode(String location) {
+        return location == null || location.isBlank() || LOCATION_LOCAL.equalsIgnoreCase(location);
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private String normalizeCountry(String country) {

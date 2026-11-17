@@ -25,7 +25,10 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -89,7 +92,7 @@ class NewsPersistenceTest {
 
     @Test
     void sameStoryIsStoredSeparatelyPerScope() {
-        when(externalNewsService.fetchLiveNews(anyString(), anyString()))
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(liveItem("Port reopens after collision", "2026-11-16T15:30:00Z")));
 
         newsService.getNews("National", null, null, "United States", null, 0, 4);
@@ -105,7 +108,7 @@ class NewsPersistenceTest {
 
     @Test
     void refetchingTheSameStoryUpdatesInsteadOfDuplicating() {
-        when(externalNewsService.fetchLiveNews(anyString(), anyString()))
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(
                         liveItem("Port reopens after collision", "2026-11-16T15:30:00Z"),
                         liveItem("Port reopens after collision", "2026-11-16T15:30:00Z")));
@@ -119,14 +122,14 @@ class NewsPersistenceTest {
 
     @Test
     void attemptsAreThrottledAndLaterPagesNeverFetch() {
-        when(externalNewsService.fetchLiveNews(anyString(), anyString()))
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any()))
                 .thenReturn(List.of(liveItem("Story A", "2026-11-16T10:00:00Z")));
 
         newsService.getNews("National", null, null, "Philippines", null, 0, 4);
         newsService.getNews("National", null, null, "Philippines", null, 0, 4);
         newsService.getNews("National", null, null, "Philippines", null, 1, 4);
 
-        verify(externalNewsService, times(1)).fetchLiveNews("National", "Philippines");
+        verify(externalNewsService, times(1)).fetchLiveNews(eq("National"), eq("Philippines"), isNull(), isNull(), isNull());
     }
 
     @Test
@@ -134,7 +137,22 @@ class NewsPersistenceTest {
         NewsFeedPage page = newsService.getNews("Local", 14.6, 120.98, "Philippines", null, 0, 4);
 
         assertTrue(page.items().isEmpty());
-        verify(externalNewsService, never()).fetchLiveNews(anyString(), anyString());
+        verify(externalNewsService, never()).fetchLiveNews(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void sameNamePlacesInDifferentProvincesGetSeparateFeeds() {
+        when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any()))
+                .thenReturn(List.of(liveItem("Naga road project starts", "2026-11-16T08:00:00Z")));
+
+        newsService.getNews("Local", null, null, "Philippines", "Naga", "Cebu", "PH", 0, 4);
+        newsService.getNews("Local", null, null, "Philippines", "Naga", "Bicol Region", "PH", 0, 4);
+
+        assertEquals(1, repository.countLocalNews("Naga, Cebu", YEAR));
+        assertEquals(1, repository.countLocalNews("Naga, Bicol Region", YEAR));
+        // The bare city and province reach the live feed separately, plus the market code.
+        verify(externalNewsService).fetchLiveNews("Naga, Cebu", "Philippines", "Naga", "Cebu", "PH");
+        assertEquals(1, newsService.searchNews("road", "Local", "Naga", "Cebu", "Philippines").size());
     }
 
     @Test

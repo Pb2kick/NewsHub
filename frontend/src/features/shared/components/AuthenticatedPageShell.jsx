@@ -32,12 +32,13 @@ export default function AuthenticatedPageShell({ children, activeCategory = NEWS
     userLocationDisplayLabel,
     isUsingCurrentLocation,
     area,
+    region,
     country,
   } = useLocationNews({ loadNews: false }); // header only — no feed fetch on non-home pages
   // Stable identity so the search request is not re-sent on every render.
   const locationContext = useMemo(
-    () => ({ selectedLocation, area, country }),
-    [selectedLocation, area, country]
+    () => ({ selectedLocation, area, region, country }),
+    [selectedLocation, area, region, country]
   );
   const {
     isProfileMenuOpen,

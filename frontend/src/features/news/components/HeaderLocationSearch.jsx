@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { LocateFixed, MapPin } from 'lucide-react';
-import { buildUniqueLocationSuggestions } from '../../shared/utils/locationSuggestions';
+import { searchLocations } from '../../shared/services/locationApi';
 
 const MIN_QUERY_LENGTH = 2;
-const DEBOUNCE_MS = 400;
+// Photon (behind /api/location/search) allows search-as-you-type, unlike Nominatim.
+const DEBOUNCE_MS = 300;
+const KIND_HINTS = { province: 'Province / state', country: 'Whole country' };
 
 /**
  * Searchable location changer with geocoding suggestions.
@@ -34,6 +36,7 @@ export default function HeaderLocationSearch(props) {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSearchFailed, setIsSearchFailed] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const listId = `location-suggestions-${variant}`;
@@ -50,25 +53,17 @@ export default function HeaderLocationSearch(props) {
     setIsSearching(true);
     const timer = window.setTimeout(async () => {
       try {
-        const params = new URLSearchParams({
-          q: trimmed,
-          format: 'jsonv2',
-          addressdetails: '1',
-          limit: '6',
-          // English names so manual picks match GPS/IP names ("Philippines", not "Pilipinas").
-          'accept-language': 'en',
-        });
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
-          signal: abortController.signal,
-          headers: { Accept: 'application/json' },
-        });
-        const payload = response.ok ? await response.json() : [];
+        const results = await searchLocations({ query: trimmed, signal: abortController.signal });
         if (!abortController.signal.aborted) {
-          setSuggestions(buildUniqueLocationSuggestions(payload));
+          setSuggestions(results);
+          setIsSearchFailed(false);
           setActiveIndex(-1);
         }
       } catch {
-        if (!abortController.signal.aborted) setSuggestions([]);
+        if (!abortController.signal.aborted) {
+          setSuggestions([]);
+          setIsSearchFailed(true);
+        }
       } finally {
         if (!abortController.signal.aborted) setIsSearching(false);
       }
@@ -81,7 +76,9 @@ export default function HeaderLocationSearch(props) {
   }, [query]);
 
   const selectSuggestion = (suggestion) => {
-    onSelectLocation(suggestion);
+    // Persist only the location fields, not the UI hints.
+    const { matchedName, kind, ...location } = suggestion;
+    onSelectLocation(location);
     setQuery('');
     setSuggestions([]);
     setIsOpen(false);
@@ -162,6 +159,8 @@ export default function HeaderLocationSearch(props) {
         >
           {isSearching ? (
             <div className="px-3 py-2 text-xs text-slate-500">Searching locations...</div>
+          ) : isSearchFailed ? (
+            <div className="px-3 py-2 text-xs text-amber-700">Location search is unavailable right now.</div>
           ) : suggestions.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-500">No locations found.</div>
           ) : (
@@ -180,7 +179,14 @@ export default function HeaderLocationSearch(props) {
                   index === activeIndex ? 'bg-slate-100 dark:bg-slate-800' : ''
                 }`}
               >
-                {suggestion.label}
+                <span className="block">{suggestion.label}</span>
+                {(suggestion.matchedName || KIND_HINTS[suggestion.kind]) && (
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                    {suggestion.matchedName
+                      ? `Includes ${suggestion.matchedName}`
+                      : KIND_HINTS[suggestion.kind]}
+                  </span>
+                )}
               </button>
             ))
           )}

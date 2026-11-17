@@ -98,7 +98,7 @@ export function getProxiedImageUrl(src) {
  * @returns {Promise<{ items: Array, totalCount: number, hasMore: boolean }>}
  */
 export async function fetchNewsByLocation({
-  location, latitude, longitude, country, area,
+  location, latitude, longitude, country, countryCode, area, region,
   page = 0, size = 4, signal,
 } = {}) {
   const params = new URLSearchParams();
@@ -107,7 +107,9 @@ export async function fetchNewsByLocation({
   if (typeof latitude === 'number') params.set('lat', String(latitude));
   if (typeof longitude === 'number') params.set('lng', String(longitude));
   if (country) params.set('country', country);
+  if (countryCode) params.set('countryCode', countryCode); // Bing market for this country
   if (area) params.set('area', area);
+  if (region) params.set('region', region); // keeps same-name places (Naga, Cebu / Naga, Bicol) apart
   params.set('page', String(page));   // pagination page index
   params.set('size', String(size));   // pagination page size
 
@@ -164,10 +166,11 @@ export async function fetchArticleContent({ url, signal } = {}) {
  * @param {{ query?: string, location?: string, area?: string, country?: string, signal?: AbortSignal }} options
  * @returns {Promise<Array>}
  */
-export async function searchNews({ query = '', location, area, country, signal } = {}) {
+export async function searchNews({ query = '', location, area, region, country, signal } = {}) {
   const params = new URLSearchParams({ q: query });
   if (location) params.set('location', location);
   if (area) params.set('area', area);
+  if (region) params.set('region', region);
   if (country) params.set('country', country);
   const response = await fetch(
     `${NEWS_API_BASE_URL}/api/news/search?${params.toString()}`,

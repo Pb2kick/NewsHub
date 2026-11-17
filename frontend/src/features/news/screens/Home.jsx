@@ -50,6 +50,7 @@ export default function Home() {
     userLocationDisplayLabel,
     isUsingCurrentLocation,
     area,
+    region,
     country,
     hasMore,
     isLoadingMore,
@@ -109,8 +110,8 @@ export default function Home() {
   const showInitialNewsLoading = (isNewsLoading || isLocationPending) && newsArticles.length === 0;
   // Stable identity: a new object every render re-triggered the search request on each keystroke.
   const locationContext = useMemo(
-    () => ({ selectedLocation, area, country }),
-    [selectedLocation, area, country]
+    () => ({ selectedLocation, area, region, country }),
+    [selectedLocation, area, region, country]
   );
 
   /** Handles top header category actions including elections navigation. */

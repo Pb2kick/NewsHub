@@ -90,6 +90,23 @@ public class ExternalNewsService {
      * @return feed items from cache or live source
      */
     public List<NewsFeedItem> fetchLiveNews(String requestedLocation, String requestedCountry) {
+        return fetchLiveNews(requestedLocation, requestedCountry, null, null, null);
+    }
+
+    /**
+     * Fetches live news for a scope.
+     *
+     * @param requestedLocation scope key: "National", "International", "All", or for Local the
+     *                          stored area key (e.g. "Palo, Leyte")
+     * @param requestedCountry  user's country (English name)
+     * @param area              Local only: the bare city name used in queries and relevance checks
+     *                          (e.g. "Palo"); null falls back to requestedLocation
+     * @param region            Local only: province/state added to queries to disambiguate; may be null
+     * @param countryCode       ISO alpha-2 code passed to Bing as the market ({@code cc}); may be null
+     * @return feed items from cache or live source
+     */
+    public List<NewsFeedItem> fetchLiveNews(String requestedLocation, String requestedCountry,
+                                            String area, String region, String countryCode) {
         if (!externalNewsEnabled) {
             return List.of();
         }
@@ -101,7 +118,7 @@ public class ExternalNewsService {
             return cached.items();
         }
 
-        List<String> queries = queriesForLocation(requestedLocation, requestedCountry);
+        List<String> queries = queriesForLocation(requestedLocation, requestedCountry, area, region);
         if (queries.isEmpty()) {
             return List.of();
         }
@@ -109,7 +126,7 @@ public class ExternalNewsService {
         // Bing's RSS endpoint returns only a handful of items per query (sometimes
         // zero for broad phrasings), so several phrasings run concurrently and are merged.
         List<CompletableFuture<List<RssItem>>> pending = queries.stream()
-                .map(this::fetchRssAsync)
+                .map(query -> fetchRssAsync(query, countryCode))
                 .toList();
 
         Map<String, RssItem> merged = new LinkedHashMap<>();
@@ -119,7 +136,7 @@ public class ExternalNewsService {
             }
         }
 
-        List<RssItem> relevant = filterForScope(new ArrayList<>(merged.values()), requestedLocation, requestedCountry);
+        List<RssItem> relevant = filterForScope(new ArrayList<>(merged.values()), requestedLocation, requestedCountry, area);
         List<RssItem> newest = relevant.stream()
                 .sorted(Comparator.comparing(RssItem::publishedAt).reversed())
                 .limit(maxItems)
@@ -139,9 +156,9 @@ public class ExternalNewsService {
      * Fetches and parses one Bing News RSS query without blocking the caller.
      * Any failure yields an empty list so one bad query never sinks the others.
      */
-    private CompletableFuture<List<RssItem>> fetchRssAsync(String query) {
+    private CompletableFuture<List<RssItem>> fetchRssAsync(String query, String countryCode) {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(buildBingNewsRssUrl(query)))
+                .uri(URI.create(buildBingNewsRssUrl(query, countryCode)))
                 .timeout(Duration.ofSeconds(12))
                 .header("User-Agent", "NewsHubBackend/1.0")
                 .GET()
@@ -174,6 +191,15 @@ public class ExternalNewsService {
      * since those belong in the National feed.
      */
     static List<RssItem> filterForScope(List<RssItem> items, String requestedLocation, String requestedCountry) {
+        return filterForScope(items, requestedLocation, requestedCountry, null);
+    }
+
+    /**
+     * @param area bare city name for the Local relevance check ("Palo" when the scope key is
+     *             "Palo, Leyte"); null uses requestedLocation
+     */
+    static List<RssItem> filterForScope(List<RssItem> items, String requestedLocation, String requestedCountry,
+                                        String area) {
         String location = requestedLocation == null ? "" : requestedLocation.trim();
         String country = requestedCountry == null ? "" : requestedCountry.trim().toLowerCase(Locale.ROOT);
 
@@ -190,7 +216,7 @@ public class ExternalNewsService {
             return items;
         }
 
-        String areaToken = areaMatchToken(location);
+        String areaToken = areaMatchToken(area == null || area.isBlank() ? location : area);
         if (areaToken.isBlank()) {
             return items;
         }
@@ -328,11 +354,16 @@ public class ExternalNewsService {
         return withoutEllipsis;
     }
 
-    private String buildBingNewsRssUrl(String query) {
+    static String buildBingNewsRssUrl(String query, String countryCode) {
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
         // setlang=en (not en-ph): the market was hardcoded to the Philippines for every user.
         // count=30 asks Bing for its maximum page instead of the default ~10.
-        return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en&count=30";
+        // cc=<user's country> uses that country's news market: "Philippines news" returned
+        // 13 current items with cc=PH vs. 6 with cc=US.
+        String market = countryCode != null && countryCode.trim().matches("[A-Za-z]{2}")
+                ? "&cc=" + countryCode.trim().toUpperCase(Locale.ROOT)
+                : "";
+        return "https://www.bing.com/news/search?q=" + encodedQuery + "&format=rss&setlang=en&count=30" + market;
     }
 
     /**
@@ -346,6 +377,19 @@ public class ExternalNewsService {
      * @return queries to run and merge; empty when the country is unknown
      */
     static List<String> queriesForLocation(String requestedLocation, String requestedCountry) {
+        return queriesForLocation(requestedLocation, requestedCountry, null, null);
+    }
+
+    /**
+     * Region-aware variant. For Local scopes the province/state is added because
+     * bare city names collide: "Palo news" returned mostly Palo Alto stories,
+     * while "Palo Leyte news" returned the Philippine town; "Naga Cebu" and
+     * "Naga Bicol" return different, correct feeds.
+     *
+     * @param area   bare city name; null uses requestedLocation
+     * @param region province/state; null when unknown
+     */
+    static List<String> queriesForLocation(String requestedLocation, String requestedCountry, String area, String region) {
         if (requestedCountry == null || requestedCountry.isBlank()) {
             return List.of(); // never fetch unscoped news into the shared DB
         }
@@ -368,7 +412,12 @@ public class ExternalNewsService {
             // "international news" / "global news" swung between 0 and 7 results.
             return List.of("world leaders", "United Nations", "global economy", "foreign affairs", "diplomacy");
         }
-        return List.of(location + " " + country + " news", location + " news");
+        String city = area == null || area.isBlank() ? location : area.trim();
+        if (region != null && !region.isBlank()) {
+            String province = region.trim();
+            return List.of(city + " " + province + " news", city + ", " + province, city + " " + country + " news");
+        }
+        return List.of(city + " " + country + " news", city + " news");
     }
 
     private List<RssItem> parseRssItems(String xmlContent) throws Exception {
