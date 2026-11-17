@@ -40,6 +40,13 @@ class NewsCategoryClassifierTest {
     }
 
     @Test
+    void streetNamesAreNotPolitics() {
+        assertEquals(NewsCategoryClassifier.TOP_STORIES, NewsCategoryClassifier.classify("",
+                "2 nabbed for damaging Meralco pole in Quezon City",
+                "Police arrested two men along Congressional Avenue"));
+    }
+
+    @Test
     void explicitFeedCategoryTakesPriority() {
         assertEquals(NewsCategoryClassifier.ECONOMY, NewsCategoryClassifier.classify("Business",
                 "New AI chip unveiled"));

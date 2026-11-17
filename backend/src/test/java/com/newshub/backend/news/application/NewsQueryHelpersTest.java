@@ -52,6 +52,24 @@ class NewsQueryHelpersTest {
     }
 
     @Test
+    void localFallsBackToCountryMentionsNeverToUnrelatedItems() {
+        ExternalNewsService.RssItem pawPatrol = rss("Paw Patrol fans, get ready!", "A fourth film is coming");
+        ExternalNewsService.RssItem national = rss("Philippines approves solar factory", "Investment news");
+        ExternalNewsService.RssItem local = rss("Pawing barangay hall reopens", "Leyte update");
+
+        assertEquals(List.of(local),
+                ExternalNewsService.filterForScope(List.of(pawPatrol, national, local), "Pawing", "Philippines"));
+        assertEquals(List.of(national),
+                ExternalNewsService.filterForScope(List.of(pawPatrol, national), "Pawing", "Philippines"));
+        assertTrue(ExternalNewsService.filterForScope(List.of(pawPatrol), "Pawing", "Philippines").isEmpty());
+    }
+
+    private static ExternalNewsService.RssItem rss(String title, String description) {
+        return new ExternalNewsService.RssItem(title, description, "Wire", "",
+                java.time.ZonedDateTime.now(), "https://example.com", "");
+    }
+
+    @Test
     void areaTokenDropsAdministrativePrefixes() {
         assertEquals("manila", ExternalNewsService.areaMatchToken("City of Manila"));
         assertEquals("quezon city", ExternalNewsService.areaMatchToken("Quezon City"));

@@ -42,7 +42,9 @@ public final class NewsCategoryClassifier {
                 "trade", "tariffs?", "gdp", "investments?", "investors?", "stocks?",
                 "banks?", "peso", "dollar", "prices?", "jobs", "employment", "revenue"));
         KEYWORDS.put(POLITICS, words(
-                "politic\\w*", "government", "senate", "senators?", "congress\\w*",
+                "politic\\w*", "government", "senate", "senators?",
+                // Not "congress\w*": "Congressional Avenue" is a Quezon City street.
+                "congress", "congress(?:man|men|woman|women)",
                 "lawmakers?", "legislat\\w*", "president(?:ial)?", "ministers?",
                 "parliament\\w*", "policy", "policies", "mayor", "governor", "cabinet"));
     }

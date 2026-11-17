@@ -165,13 +165,15 @@ public class ExternalNewsService {
      * Drops merged items that do not belong to the requested scope.
      *
      * <p>Local: keeps items that mention the area by name, because Bing matches
-     * loosely (a query for "New Orleans" returned a Bronx arrest story). If nothing
-     * mentions the area the unfiltered list is kept rather than showing nothing.
+     * loosely (a query for "New Orleans" returned a Bronx arrest story). When no
+     * item mentions the area — common for small places, where "Pawing" returned
+     * only Paw Patrol stories — it falls back to items that mention the country,
+     * and otherwise returns nothing rather than unrelated results.
      *
      * <p>International: drops items whose headline names the user's own country,
      * since those belong in the National feed.
      */
-    private List<RssItem> filterForScope(List<RssItem> items, String requestedLocation, String requestedCountry) {
+    static List<RssItem> filterForScope(List<RssItem> items, String requestedLocation, String requestedCountry) {
         String location = requestedLocation == null ? "" : requestedLocation.trim();
         String country = requestedCountry == null ? "" : requestedCountry.trim().toLowerCase(Locale.ROOT);
 
@@ -195,7 +197,12 @@ public class ExternalNewsService {
         List<RssItem> mentioning = items.stream()
                 .filter(item -> (item.title() + " " + item.description()).toLowerCase(Locale.ROOT).contains(areaToken))
                 .toList();
-        return mentioning.isEmpty() ? items : mentioning;
+        if (!mentioning.isEmpty() || country.isBlank()) {
+            return mentioning;
+        }
+        return items.stream()
+                .filter(item -> (item.title() + " " + item.description()).toLowerCase(Locale.ROOT).contains(country))
+                .toList();
     }
 
     /**
@@ -813,7 +820,7 @@ public class ExternalNewsService {
     }
 
     /** One parsed RSS item before scope filtering, trimming and image lookup. */
-    private record RssItem(String title, String description, String source, String feedCategory,
+    record RssItem(String title, String description, String source, String feedCategory,
                            ZonedDateTime publishedAt, String articleUrl, String imageUrl) {
     }
 }
