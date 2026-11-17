@@ -11,7 +11,6 @@ import { useLocationNews } from '../hooks/useLocationNews';
 import { useNotificationsContext } from '../context/NotificationsContext';
 import { useProfileMenu } from '../../profile/hooks/useProfileMenu';
 import {
-  filterNewsByCategory,
   NEWS_CATEGORY_TABS,
   NEWS_CATEGORY_TOP_STORIES,
   tagNewsArticlesByCategory,
@@ -36,6 +35,10 @@ function hasImage(imageUrl) {
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
+  // A tab picked on another page arrives through navigation state.
+  const [selectedNewsCategory, setSelectedNewsCategory] = useState(
+    () => location.state?.category || NEWS_CATEGORY_TOP_STORIES
+  );
   const {
     selectedLocation,
     locationLabel,
@@ -52,13 +55,13 @@ export default function Home() {
     area,
     region,
     country,
+    countryCode,
     hasMore,
     isLoadingMore,
     loadMore,
     isLocationPending, // true while detection runs and no location is known yet
     needsManualLocation, // detection failed and nothing is remembered
-  } = useLocationNews();
-  const [selectedNewsCategory, setSelectedNewsCategory] = useState(NEWS_CATEGORY_TOP_STORIES);
+  } = useLocationNews({ category: selectedNewsCategory }); // category is filtered in the database
   const {
     isProfileMenuOpen,
     setIsProfileMenuOpen,
@@ -99,19 +102,17 @@ export default function Home() {
     loadActiveElections();
   }, []);
 
+  // The backend already returns only the selected category; tagging just
+  // normalizes the label shown on each card.
   const taggedArticles = useMemo(() => tagNewsArticlesByCategory(newsArticles), [newsArticles]);
-  const filteredArticles = useMemo(
-    () => filterNewsByCategory(taggedArticles, selectedNewsCategory),
-    [taggedArticles, selectedNewsCategory]
-  );
-  const featuredArticle = filteredArticles[0];
-  const otherArticles = useMemo(() => filteredArticles.slice(1), [filteredArticles]);
+  const featuredArticle = taggedArticles[0];
+  const otherArticles = useMemo(() => taggedArticles.slice(1), [taggedArticles]);
   const topCategories = NEWS_CATEGORY_TABS;
   const showInitialNewsLoading = (isNewsLoading || isLocationPending) && newsArticles.length === 0;
   // Stable identity: a new object every render re-triggered the search request on each keystroke.
   const locationContext = useMemo(
-    () => ({ selectedLocation, area, region, country }),
-    [selectedLocation, area, region, country]
+    () => ({ selectedLocation, area, region, country, countryCode }),
+    [selectedLocation, area, region, country, countryCode]
   );
 
   /** Handles top header category actions including elections navigation. */

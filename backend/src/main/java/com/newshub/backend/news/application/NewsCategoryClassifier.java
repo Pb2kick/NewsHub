@@ -36,7 +36,9 @@ public final class NewsCategoryClassifier {
                 "technolog(?:y|ies|ical)", "tech", "ai", "artificial intelligence", "cyber\\w*",
                 "digital", "software", "hardware", "internet", "smartphones?", "apps?",
                 "startups?", "semiconductors?", "chips?", "robot\\w*", "data cent(?:er|re)s?",
-                "fintech", "online"));
+                // Not "online": it appears in ordinary stories ("posted online") and tagged an
+                // Albay evacuation report as Technology.
+                "fintech"));
         KEYWORDS.put(ECONOMY, words(
                 "econom\\w*", "business(?:es)?", "markets?", "financ\\w*", "inflation",
                 "trade", "tariffs?", "gdp", "investments?", "investors?", "stocks?",

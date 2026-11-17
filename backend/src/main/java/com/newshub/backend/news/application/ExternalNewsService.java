@@ -153,6 +153,36 @@ public class ExternalNewsService {
     }
 
     /**
+     * Runs a user's search text against the live news source (explicit searches
+     * only — see NewsService.searchNews). Results are cached per query and market
+     * for the usual cache period, so repeating a search does not call Bing again.
+     *
+     * @param query       the user's search text
+     * @param countryCode ISO alpha-2 market to bias results toward; may be null
+     * @return up to maxItems current-year items, newest first
+     */
+    public List<NewsFeedItem> searchLive(String query, String countryCode) {
+        if (!externalNewsEnabled || query == null || query.isBlank()) {
+            return List.of();
+        }
+        evictExpiredCacheEntries();
+        String market = countryCode == null ? "" : countryCode.trim().toLowerCase(Locale.ROOT);
+        String cacheKey = "search|" + query.trim().toLowerCase(Locale.ROOT) + "|" + market;
+        CacheEntry cached = cacheByLocation.get(cacheKey);
+        if (cached != null && !isExpired(cached.cachedAt())) {
+            return cached.items();
+        }
+
+        List<RssItem> newest = fetchRssAsync(query.trim(), countryCode).join().stream()
+                .sorted(Comparator.comparing(RssItem::publishedAt).reversed())
+                .limit(maxItems)
+                .toList();
+        List<NewsFeedItem> items = toFeedItems(newest, "Search");
+        cacheByLocation.put(cacheKey, new CacheEntry(List.copyOf(items), Instant.now()));
+        return items;
+    }
+
+    /**
      * Fetches and parses one Bing News RSS query without blocking the caller.
      * Any failure yields an empty list so one bad query never sinks the others.
      */

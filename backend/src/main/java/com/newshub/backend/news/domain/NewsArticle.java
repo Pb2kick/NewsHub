@@ -55,6 +55,15 @@ public class NewsArticle {
         @Column(name = "fetched_at")
         private LocalDateTime fetchedAt;
 
+        /**
+         * Homepage category (Politics, Economy, ...), stored so the feed can be
+         * filtered in the database. Category tabs used to filter only the few
+         * articles already loaded in the browser. Rows saved before this column
+         * existed are filled in at startup by NewsSchemaMaintenance.
+         */
+        @Column(name = "category", length = 40)
+        private String category;
+
         public NewsArticle() {
         }
 
@@ -165,5 +174,13 @@ public class NewsArticle {
 
         public void setFetchedAt(LocalDateTime fetchedAt) {
                 this.fetchedAt = fetchedAt;
+        }
+
+        public String getCategory() {
+                return category;
+        }
+
+        public void setCategory(String category) {
+                this.category = category;
         }
 }

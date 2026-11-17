@@ -98,10 +98,11 @@ export function getProxiedImageUrl(src) {
  * @returns {Promise<{ items: Array, totalCount: number, hasMore: boolean }>}
  */
 export async function fetchNewsByLocation({
-  location, latitude, longitude, country, countryCode, area, region,
+  location, latitude, longitude, country, countryCode, area, region, category,
   page = 0, size = 4, signal,
 } = {}) {
   const params = new URLSearchParams();
+  if (category) params.set('category', category);
 
   if (location) params.set('location', location);
   if (typeof latitude === 'number') params.set('lat', String(latitude));
@@ -166,11 +167,18 @@ export async function fetchArticleContent({ url, signal } = {}) {
  * @param {{ query?: string, location?: string, area?: string, country?: string, signal?: AbortSignal }} options
  * @returns {Promise<Array>}
  */
-export async function searchNews({ query = '', location, area, region, country, signal } = {}) {
-  const params = new URLSearchParams({ q: query });
+export async function searchNews({
+  query = '', location, area, region, country, countryCode,
+  page = 0, size = 8, live = false, signal,
+} = {}) {
+  const params = new URLSearchParams({ q: query, page: String(page), size: String(size) });
   if (location) params.set('location', location);
   if (area) params.set('area', area);
   if (region) params.set('region', region);
+  if (countryCode) params.set('countryCode', countryCode);
+  // live=true (results page only): the backend also asks the live news source
+  // when few stored articles match. Never sent while typing in the dropdown.
+  if (live) params.set('live', 'true');
   if (country) params.set('country', country);
   const response = await fetch(
     `${NEWS_API_BASE_URL}/api/news/search?${params.toString()}`,

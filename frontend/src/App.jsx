@@ -3,7 +3,7 @@ import './App.css';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Login, Register, EmailConfirmed, useAdminAccess } from './features/auth';
-import { Home, Article } from './features/news';
+import { Home, Article, SearchResults } from './features/news';
 import { Elections, ElectionDetails, CandidateProfile, VoteVerification, Vote } from './features/elections';
 import { Profile } from './features/profile';
 import {
@@ -123,6 +123,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/home" element={<Home />} />
             <Route path="/news/:id" element={<Article />} />
+            <Route path="/search" element={<SearchResults />} />
             <Route path="/elections" element={<Elections />} />
             <Route path="/elections/:electionId" element={<ElectionDetails />} />
             <Route path="/elections/:electionId/candidates/:candidateId" element={<CandidateProfile />} />

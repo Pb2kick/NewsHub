@@ -29,6 +29,10 @@ public class NewsService {
     private static final String LOCATION_NATIONAL = "National";
     private static final String LOCATION_LOCAL = "Local";
     private static final String LOCATION_INTERNATIONAL = "International";
+    /** Pool for articles found by live search; stored with country "Search", region = user's country. */
+    private static final String LOCATION_SEARCH = "Search";
+    /** Explicit searches with fewer stored matches than this also query the live source. */
+    static final int LIVE_SEARCH_THRESHOLD = 3;
 
     private static final DateTimeFormatter FEED_DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH);
     private static final String LEGACY_STATIC_IMAGE = "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
@@ -40,6 +44,8 @@ public class NewsService {
     private final long staleHours;
     /** scope key → last live-fetch attempt; stops repeated fetches while Bing returns nothing new. */
     private final Map<String, Instant> lastRefreshAttempt = new ConcurrentHashMap<>();
+    /** scope key → monitor serializing that scope's live refresh. */
+    private final Map<String, Object> refreshLocks = new ConcurrentHashMap<>();
 
     public NewsService(NewsArticleRepository newsArticleRepository, ExternalNewsService externalNewsService,
                        @Value("${news.external.stale-hours:6}") long staleHours) {
@@ -69,6 +75,16 @@ public class NewsService {
     public NewsFeedPage getNews(String location, Double latitude, Double longitude,
                                 String country, String area, String region, String countryCode,
                                 int page, int size) {
+        return getNews(location, latitude, longitude, country, area, region, countryCode, null, page, size);
+    }
+
+    /**
+     * @param category homepage tab to filter by in the database ("Politics", "Economy",
+     *                 "Technology", "Elections"); null, blank or "Top Stories" means all
+     */
+    public NewsFeedPage getNews(String location, Double latitude, Double longitude,
+                                String country, String area, String region, String countryCode,
+                                String category, int page, int size) {
         String requestedCountry = normalizeCountry(country);
         String requestedLocation = normalizeLocation(location, localScopeKey(area, region));
         boolean isLocal = isLocalMode(location);
@@ -78,16 +94,41 @@ public class NewsService {
             return new NewsFeedPage(List.of(), 0, false);
         }
 
-        if (page == 0 && needsRefresh(requestedLocation, requestedCountry, currentYear)) {
-            lastRefreshAttempt.put(scopeKey(requestedLocation, requestedCountry), Instant.now());
-            List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry,
-                    isLocal ? trimToNull(area) : null, isLocal ? trimToNull(region) : null, trimToNull(countryCode));
-            if (!liveNews.isEmpty()) {
-                persistExternalNews(liveNews, requestedLocation, requestedCountry);
+        if (page == 0) {
+            // One refresh per scope at a time: a second request for the same scope waits here
+            // for the first one's fetch instead of skipping it (the attempt is already recorded)
+            // and returning an empty page while the first request is still saving articles.
+            Object scopeLock = refreshLocks.computeIfAbsent(scopeKey(requestedLocation, requestedCountry), key -> new Object());
+            synchronized (scopeLock) {
+                if (needsRefresh(requestedLocation, requestedCountry, currentYear)) {
+                    lastRefreshAttempt.put(scopeKey(requestedLocation, requestedCountry), Instant.now());
+                    List<NewsFeedItem> liveNews = externalNewsService.fetchLiveNews(requestedLocation, requestedCountry,
+                            isLocal ? trimToNull(area) : null, isLocal ? trimToNull(region) : null, trimToNull(countryCode));
+                    if (!liveNews.isEmpty()) {
+                        persistExternalNews(liveNews, requestedLocation, requestedCountry);
+                    }
+                }
             }
         }
 
-        return servePagedFromDb(requestedLocation, requestedCountry, page, size);
+        return servePagedFromDb(requestedLocation, requestedCountry, normalizeCategory(category), page, size);
+    }
+
+    /**
+     * Maps a requested tab to a stored category value, or "" for "everything".
+     * Unknown values also mean everything rather than an always-empty feed.
+     */
+    static String normalizeCategory(String category) {
+        if (category == null) {
+            return "";
+        }
+        for (String known : List.of(NewsCategoryClassifier.POLITICS, NewsCategoryClassifier.ECONOMY,
+                NewsCategoryClassifier.TECHNOLOGY, NewsCategoryClassifier.ELECTIONS)) {
+            if (known.equalsIgnoreCase(category.trim())) {
+                return known;
+            }
+        }
+        return "";
     }
 
     /**
@@ -98,44 +139,77 @@ public class NewsService {
         return newsArticleRepository.findById(id).map(this::toFeedItem);
     }
 
-    /**
-     * Searches persisted articles whose title, summary, or content contain the
-     * given phrase, scoped to the user's current location. Returns at most 8.
-     */
+    /** Dropdown search (first 8 results, no live fetch). */
     public List<NewsFeedItem> searchNews(String query, String location, String area, String country) {
-        return searchNews(query, location, area, null, country);
+        return searchNews(query, area, null, country, null, 0, 8, false);
     }
 
-    /** Region-aware search: Local results come from the same "area, region" scope as the feed. */
+    /** Dropdown search (first 8 results, no live fetch), boosted toward "area, region". */
     public List<NewsFeedItem> searchNews(String query, String location, String area, String region, String country) {
-        area = localScopeKey(area, region);
-        if (query == null || query.isBlank()) {
+        return searchNews(query, area, region, country, null, 0, 8, false);
+    }
+
+    /**
+     * Ranked full-text search across every stored article.
+     *
+     * <p>Words can appear in any order and the last word matches as a prefix
+     * ("cruise ship crash" finds "tanker crash into cruise ship"; "cruis" finds
+     * "cruise"). Results from the user's own area come first, then their country,
+     * then their International pool, then everything else.
+     *
+     * <p>With {@code live} set (explicit searches only, never per keystroke) and
+     * fewer than {@value #LIVE_SEARCH_THRESHOLD} stored matches, the query is also
+     * run against the live news source. Those articles are stored in a separate
+     * "Search" pool that feeds never read, so search can grow the archive without
+     * putting unrelated stories into anyone's Local or National feed.
+     *
+     * @param page 0-based page; live fetching only happens on page 0
+     * @param size results per page, capped at 50
+     */
+    public List<NewsFeedItem> searchNews(String query, String area, String region, String country,
+                                         String countryCode, int page, int size, boolean live) {
+        String tsquery = buildTsQuery(query);
+        if (tsquery.isEmpty()) {
             return List.of();
         }
-        if ((location == null || location.isBlank()) && (country == null || country.isBlank())) {
-            return List.of(); // location context not yet resolved — do not query
-        }
-        if (LOCATION_NATIONAL.equalsIgnoreCase(location) && (country == null || country.isBlank())) {
-            return List.of();
-        }
+        int safeSize = Math.max(1, Math.min(size, 50));
+        int safePage = Math.max(0, page);
+        String localKey = localScopeKey(area, region);
+        String userCountry = normalizeCountry(country);
 
-        String keyword = escapeLikePattern(query.trim());
-        PageRequest page = PageRequest.of(0, 8);
-        String resolvedCountry = (country != null && !country.isBlank()) ? country.trim() : "";
+        List<NewsArticle> rows = newsArticleRepository.searchFullText(tsquery, localKey, userCountry, safeSize, safePage * safeSize);
+        if (live && safePage == 0 && rows.size() < LIVE_SEARCH_THRESHOLD && query.trim().length() >= 3) {
+            List<NewsFeedItem> liveItems = externalNewsService.searchLive(query.trim(), trimToNull(countryCode));
+            if (!liveItems.isEmpty()) {
+                persistExternalNews(liveItems, LOCATION_SEARCH, userCountry);
+                rows = newsArticleRepository.searchFullText(tsquery, localKey, userCountry, safeSize, 0);
+            }
+        }
+        return rows.stream().map(this::toFeedItem).toList();
+    }
 
-        if (LOCATION_LOCAL.equalsIgnoreCase(location) && area != null && !area.isBlank()) {
-            return newsArticleRepository.searchByKeywordAndArea(keyword, area.trim(), page)
-                    .stream().map(this::toFeedItem).toList();
+    /**
+     * Builds a PostgreSQL tsquery from free text: words are reduced to letters and
+     * digits (so user input can never inject tsquery operators), joined with AND,
+     * and the last word gets a prefix marker for search-as-you-type.
+     * "Cruise ship cras" becomes "cruise & ship & cras:*".
+     *
+     * @return the tsquery, or "" when the text has no searchable words
+     */
+    static String buildTsQuery(String raw) {
+        if (raw == null) {
+            return "";
         }
-        if (LOCATION_NATIONAL.equalsIgnoreCase(location)) {
-            return newsArticleRepository.searchByKeywordAndNational(keyword, resolvedCountry, page)
-                    .stream().map(this::toFeedItem).toList();
+        List<String> words = java.util.Arrays.stream(raw.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
+                .filter(word -> !word.isBlank())
+                .limit(8)
+                .toList();
+        if (words.isEmpty()) {
+            return "";
         }
-        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(location)) {
-            return newsArticleRepository.searchByKeywordAndInternational(keyword, resolvedCountry, page)
-                    .stream().map(this::toFeedItem).toList();
-        }
-        return List.of(); // unknown mode — never fall through to an unscoped search
+        List<String> terms = new java.util.ArrayList<>(words);
+        terms.set(terms.size() - 1, terms.get(terms.size() - 1) + ":*");
+        return String.join(" & ", terms);
     }
 
     /**
@@ -231,8 +305,7 @@ public class NewsService {
         String effectiveLocation = firstNonBlank(article.getRegion(), article.getCountry(), LOCATION_NATIONAL);
         String excerpt = firstNonBlank(article.getSummary(), truncate(article.getContent(), 180), "No summary available.");
         String author = firstNonBlank(article.getSource(), "NewsHub Desk");
-        String category = NewsCategoryClassifier.classify("", article.getTitle(), article.getSummary(),
-                article.getContent(), article.getSource());
+        String category = firstNonBlank(article.getCategory(), classify(article));
         String image = sanitizeImageUrl(article.getMediaUrls());
         String date = article.getPublishedAt() != null
                 ? FEED_DATE_FORMATTER.format(article.getPublishedAt())
@@ -279,6 +352,9 @@ public class NewsService {
                     NewsArticle existing = findExistingInScope(item.title(), item.author(), country, region).orElse(null);
                     if (existing != null) {
                         existing.setFetchedAt(fetchedAt);
+                        if (existing.getCategory() == null || existing.getCategory().isBlank()) {
+                            existing.setCategory(classify(existing));
+                        }
                         if (sanitizeImageUrl(existing.getMediaUrls()).isBlank() && !normalizedImage.isBlank()) {
                             existing.setMediaUrls(normalizedImage);
                         }
@@ -297,6 +373,7 @@ public class NewsService {
                             null
                     );
                     created.setFetchedAt(fetchedAt);
+                    created.setCategory(classify(created));
                     return created;
                 })
                 .filter(Objects::nonNull)
@@ -305,6 +382,11 @@ public class NewsService {
         if (!toSave.isEmpty()) {
             newsArticleRepository.saveAll(toSave);
         }
+    }
+
+    private static String classify(NewsArticle article) {
+        return NewsCategoryClassifier.classify("", article.getTitle(), article.getSummary(),
+                article.getContent(), article.getSource());
     }
 
     private Optional<NewsArticle> findExistingInScope(String title, String source, String country, String region) {
@@ -349,17 +431,21 @@ public class NewsService {
         if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
             return "International";
         }
+        if (LOCATION_SEARCH.equalsIgnoreCase(requestedLocation)) {
+            return LOCATION_SEARCH;
+        }
         return requestedCountry;
     }
 
     /**
      * Region column: null for National/All, the area for Local, and the user's
-     * domestic country for International (so each country's International pool
-     * stays separate without a new column).
+     * domestic country for International and Search (so each country's pools
+     * stay separate without a new column). Feed queries never read the Search pool.
      */
     private String resolveRegionForLocation(String requestedLocation, String requestedCountry) {
-        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            return requestedCountry;
+        if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)
+                || LOCATION_SEARCH.equalsIgnoreCase(requestedLocation)) {
+            return requestedCountry == null || requestedCountry.isBlank() ? null : requestedCountry;
         }
         if (requestedLocation == null || requestedLocation.isBlank()
                 || LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)
@@ -399,7 +485,8 @@ public class NewsService {
     /**
      * Serves one page of current-year articles from the DB for the given scope.
      */
-    private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry, int page, int size) {
+    private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry, String category,
+                                          int page, int size) {
         int currentYear = LocalDateTime.now().getYear();
         PageRequest pageRequest = PageRequest.of(page, size);
         long total;
@@ -409,14 +496,14 @@ public class NewsService {
             total = newsArticleRepository.countByYear(currentYear);
             articles = newsArticleRepository.findAllByYear(currentYear, pageRequest);
         } else if (LOCATION_NATIONAL.equalsIgnoreCase(requestedLocation)) {
-            total = newsArticleRepository.countNationalNews(requestedCountry, currentYear);
-            articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, currentYear, pageRequest);
+            total = newsArticleRepository.countNationalNews(requestedCountry, currentYear, category);
+            articles = newsArticleRepository.findNationalNewsByYear(requestedCountry, currentYear, category, pageRequest);
         } else if (LOCATION_INTERNATIONAL.equalsIgnoreCase(requestedLocation)) {
-            total = newsArticleRepository.countInternationalNews(requestedCountry, currentYear);
-            articles = newsArticleRepository.findInternationalNewsByYear(requestedCountry, currentYear, pageRequest);
+            total = newsArticleRepository.countInternationalNews(requestedCountry, currentYear, category);
+            articles = newsArticleRepository.findInternationalNewsByYear(requestedCountry, currentYear, category, pageRequest);
         } else {
-            total = newsArticleRepository.countLocalNews(requestedLocation, currentYear);
-            articles = newsArticleRepository.findLocalNewsByYear(requestedLocation, currentYear, pageRequest);
+            total = newsArticleRepository.countLocalNews(requestedLocation, currentYear, category);
+            articles = newsArticleRepository.findLocalNewsByYear(requestedLocation, currentYear, category, pageRequest);
         }
 
         List<NewsFeedItem> items = articles.stream().map(this::toFeedItem).toList();
