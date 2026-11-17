@@ -236,6 +236,24 @@ class NewsPersistenceTest {
     }
 
     @Test
+    void startupMaintenanceRemovesOnlyTheOldDemoArticles() {
+        for (String demoTitle : NewsSchemaMaintenance.DEMO_ARTICLE_TITLES) {
+            repository.save(article(demoTitle, "Philippines", null)); // saved like the old seeder: no link, no author
+        }
+        String sameTitle = NewsSchemaMaintenance.DEMO_ARTICLE_TITLES.get(4);
+        repository.save(new NewsArticle(sameTitle, "s", "c", "", "Real Wire", "https://example.com/transit",
+                "Philippines", null, LocalDateTime.now(ZoneOffset.UTC), null));          // real story, same title
+        repository.save(new NewsArticle(sameTitle, "s", "c", "", "Reader", null,
+                "Philippines", null, LocalDateTime.now(ZoneOffset.UTC), 42L));           // user-written post
+        repository.save(article("Unrelated story without a link", "Philippines", null));
+        repository.flush(); // the cleanup runs as plain SQL, so the rows must be in the table
+
+        assertEquals(6, schemaMaintenance.removeDemoArticles());
+        assertEquals(3, repository.count(), "real, user-written and unrelated rows stay");
+        assertEquals(0, schemaMaintenance.removeDemoArticles(), "safe to run on every startup");
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED) // threads must see each other's commits
     void concurrentFirstLoadsWaitForTheSameRefresh() throws Exception {
         when(externalNewsService.fetchLiveNews(anyString(), anyString(), any(), any(), any())).thenAnswer(call -> {
