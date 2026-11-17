@@ -4,6 +4,8 @@ import com.newshub.backend.news.api.dto.NewsFeedItem;
 import com.newshub.backend.news.api.dto.NewsFeedPage;
 import com.newshub.backend.news.domain.NewsArticle;
 import com.newshub.backend.news.infrastructure.persistence.NewsArticleRepository;
+import com.newshub.backend.news.infrastructure.persistence.OffsetLimitRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -85,6 +87,19 @@ public class NewsService {
     public NewsFeedPage getNews(String location, Double latitude, Double longitude,
                                 String country, String area, String region, String countryCode,
                                 String category, int page, int size) {
+        return getNews(location, latitude, longitude, country, area, region, countryCode, category, null, page, size);
+    }
+
+    /**
+     * @param offset exact first row to return; when null the start is page × size. The home
+     *               feed uses it to load 5 articles first (1 featured + a full 2×2 grid) and then
+     *               4 at a time, which page-index paging cannot express.
+     */
+    public NewsFeedPage getNews(String location, Double latitude, Double longitude,
+                                String country, String area, String region, String countryCode,
+                                String category, Integer offset, int page, int size) {
+        int safeSize = Math.max(1, Math.min(size, 50));
+        long start = offset != null ? Math.max(0, offset) : (long) Math.max(0, page) * safeSize;
         String requestedCountry = normalizeCountry(country);
         String requestedLocation = normalizeLocation(location, localScopeKey(area, region));
         boolean isLocal = isLocalMode(location);
@@ -94,7 +109,7 @@ public class NewsService {
             return new NewsFeedPage(List.of(), 0, false);
         }
 
-        if (page == 0) {
+        if (start == 0) {
             // One refresh per scope at a time: a second request for the same scope waits here
             // for the first one's fetch instead of skipping it (the attempt is already recorded)
             // and returning an empty page while the first request is still saving articles.
@@ -111,7 +126,7 @@ public class NewsService {
             }
         }
 
-        return servePagedFromDb(requestedLocation, requestedCountry, normalizeCategory(category), page, size);
+        return servePagedFromDb(requestedLocation, requestedCountry, normalizeCategory(category), start, safeSize);
     }
 
     /**
@@ -483,12 +498,12 @@ public class NewsService {
     }
 
     /**
-     * Serves one page of current-year articles from the DB for the given scope.
+     * Serves {@code size} current-year articles starting at row {@code start} for the given scope.
      */
     private NewsFeedPage servePagedFromDb(String requestedLocation, String requestedCountry, String category,
-                                          int page, int size) {
+                                          long start, int size) {
         int currentYear = LocalDateTime.now().getYear();
-        PageRequest pageRequest = PageRequest.of(page, size);
+        Pageable pageRequest = new OffsetLimitRequest(start, size);
         long total;
         List<NewsArticle> articles;
 
@@ -507,7 +522,7 @@ public class NewsService {
         }
 
         List<NewsFeedItem> items = articles.stream().map(this::toFeedItem).toList();
-        boolean hasMore = (long) page * size + items.size() < total;
+        boolean hasMore = start + items.size() < total;
         return new NewsFeedPage(items, (int) total, hasMore);
     }
 

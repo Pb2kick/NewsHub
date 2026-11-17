@@ -23,7 +23,11 @@ import { toValidLocationMode } from '../../shared/utils/locationResolver';
 import { parseStoredLocation } from '../../shared/utils/newsLocationContext';
 import { reverseGeocode, toUserLocation } from '../../shared/services/locationApi';
 
-const PAGE_SIZE = 4;
+// Home shows the first article as the featured story above a two-column grid.
+// Loading 5 first (1 featured + 4 cards) and then 4 per "See more" keeps every
+// grid row full; with 4 per page the grid always had an odd count and one gap.
+const FIRST_PAGE_SIZE = 5;
+const MORE_PAGE_SIZE = 4;
 const FEED_CACHE_TTL_MS = 300000;
 
 /** Blank details mean "not resolved yet"; the backend returns nothing for a blank country. */
@@ -149,7 +153,6 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
   const [newsArticles, setNewsArticles] = useState([]);
   const [isNewsLoading, setIsNewsLoading] = useState(loadNews);
   const [newsError, setNewsError] = useState('');
-  const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -271,7 +274,6 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
     if (loadMoreAbortRef.current) loadMoreAbortRef.current.abort();
 
     async function loadFirstPage() {
-      setPage(0);
       setIsLoadingMore(false);
 
       if (!locationRequest.country || !locationRequest.area || !locationRequest.location) {
@@ -284,14 +286,15 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
         return;
       }
 
-      const cacheKey = `newshub.articles.cache.${feedKey}|0`;
+      // v2: first pages now hold 5 articles; older cached entries held 4.
+      const cacheKey = `newshub.articles.cache.v2.${feedKey}`;
       let cachedPayload = null;
       try {
         const parsed = JSON.parse(readStorage(cacheKey) || 'null');
         const isFresh = typeof parsed?.cachedAt === 'number' && Date.now() - parsed.cachedAt < FEED_CACHE_TTL_MS;
         if (isFresh && Array.isArray(parsed?.items)) {
           cachedPayload = {
-            items: parsed.items.slice(0, PAGE_SIZE),
+            items: parsed.items.slice(0, FIRST_PAGE_SIZE),
             hasMore: Boolean(parsed.hasMore),
             totalCount: Number.isFinite(parsed.totalCount) ? parsed.totalCount : 0,
           };
@@ -317,8 +320,8 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
       try {
         const result = await fetchNewsByLocation({
           ...locationRequest,
-          page: 0,
-          size: PAGE_SIZE,
+          offset: 0,
+          size: FIRST_PAGE_SIZE,
           signal: abortController.signal,
         });
         if (abortController.signal.aborted) return;
@@ -346,19 +349,21 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
     return () => abortController.abort();
   }, [locationRequest, loadNews]);
 
-  /** Fetches the next page and appends it, unless the location changed meanwhile. */
+  /**
+   * Fetches the next 4 articles after the ones on screen and appends them,
+   * unless the location changed meanwhile.
+   */
   const loadMore = async () => {
     if (!hasMore || isLoadingMore) return;
     const requestKey = feedKeyRef.current;
-    const nextPage = page + 1;
     const controller = new AbortController();
     loadMoreAbortRef.current = controller;
     setIsLoadingMore(true);
     try {
       const result = await fetchNewsByLocation({
         ...locationRequest,
-        page: nextPage,
-        size: PAGE_SIZE,
+        offset: newsArticles.length, // continue exactly after the last article shown
+        size: MORE_PAGE_SIZE,
         signal: controller.signal,
       });
       if (controller.signal.aborted || feedKeyRef.current !== requestKey) return;
@@ -368,7 +373,6 @@ export function useLocationNews({ loadNews = true, category = null } = {}) {
       });
       setHasMore(result.hasMore);
       setTotalCount(result.totalCount);
-      setPage(nextPage);
     } catch {
       // Keep the articles already on screen.
     } finally {

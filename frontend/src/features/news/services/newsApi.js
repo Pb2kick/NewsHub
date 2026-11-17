@@ -99,10 +99,12 @@ export function getProxiedImageUrl(src) {
  */
 export async function fetchNewsByLocation({
   location, latitude, longitude, country, countryCode, area, region, category,
-  page = 0, size = 4, signal,
+  page = 0, size = 4, offset, signal,
 } = {}) {
   const params = new URLSearchParams();
   if (category) params.set('category', category);
+  // offset (exact first row) takes precedence over page on the backend.
+  if (Number.isInteger(offset)) params.set('offset', String(offset));
 
   if (location) params.set('location', location);
   if (typeof latitude === 'number') params.set('lat', String(latitude));
