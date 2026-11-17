@@ -48,10 +48,12 @@ public class NewsController {
             @RequestParam(required = false) String region,
             @RequestParam(required = false) String countryCode,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) Integer offset,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "4") int size
     ) {
-        return newsService.getNews(location, lat, lng, country, area, region, countryCode, category, page, size);
+        // offset (when given) wins over page: the home feed loads 5 first, then 4 at a time.
+        return newsService.getNews(location, lat, lng, country, area, region, countryCode, category, offset, page, size);
     }
 
     /**

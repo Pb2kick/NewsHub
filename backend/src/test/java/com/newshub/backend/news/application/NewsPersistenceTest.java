@@ -259,6 +259,29 @@ class NewsPersistenceTest {
         }
     }
 
+    @Test
+    void feedLoadsFiveFirstThenFourByOffsetWithoutGapsOrRepeats() {
+        LocalDateTime base = LocalDateTime.now(ZoneOffset.UTC).withSecond(0).withNano(0);
+        for (int i = 0; i < 9; i++) {
+            NewsArticle story = article("Cebu story " + i, "Philippines", "Cebu, Central Visayas");
+            story.setPublishedAt(base.minusMinutes(i)); // story 0 is newest
+            repository.save(story);
+        }
+
+        NewsFeedPage first = newsService.getNews("Local", null, null, "Philippines", "Cebu", "Central Visayas",
+                "PH", null, 0, 0, 5);
+        NewsFeedPage more = newsService.getNews("Local", null, null, "Philippines", "Cebu", "Central Visayas",
+                "PH", null, 5, 0, 4);
+
+        assertEquals(List.of("Cebu story 0", "Cebu story 1", "Cebu story 2", "Cebu story 3", "Cebu story 4"),
+                first.items().stream().map(NewsFeedItem::title).toList(), "1 featured + a full 2x2 grid");
+        assertTrue(first.hasMore());
+        assertEquals(List.of("Cebu story 5", "Cebu story 6", "Cebu story 7", "Cebu story 8"),
+                more.items().stream().map(NewsFeedItem::title).toList(), "next two full rows, no repeats");
+        assertTrue(!more.hasMore());
+        verify(externalNewsService, never()).fetchLiveNews(any(), any(), any(), any(), any());
+    }
+
     private List<NewsArticle> search(String raw) {
         return repository.searchByKeywordAndArea(NewsService.escapeLikePattern(raw), "New Orleans", PageRequest.of(0, 8));
     }
