@@ -6,28 +6,20 @@ import {
   USER_LOCATION_STORAGE_KEY,
 } from '../constants/locations';
 import { toValidLocationMode } from './locationResolver';
+import { toUserLocation } from '../services/locationApi';
 
 /**
- * Parses a stored location payload ({ area, country, label, latitude, longitude }).
+ * Parses a stored location payload. Locations saved before Phase 2 have no
+ * region/countryCode; callers re-normalize those once (see useLocationNews).
  * @param {string | null} raw
- * @returns {{ area: string, country: string, label: string, latitude: number | null, longitude: number | null } | null}
+ * @returns {import('../services/locationApi').UserLocation | null}
  */
 export function parseStoredLocation(raw) {
   if (!raw || raw === USER_LOCATION_CURRENT) {
     return null;
   }
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed?.area || !parsed?.country || !parsed?.label) {
-      return null;
-    }
-    return {
-      area: String(parsed.area),
-      country: String(parsed.country),
-      label: String(parsed.label),
-      latitude: typeof parsed.latitude === 'number' ? parsed.latitude : null,
-      longitude: typeof parsed.longitude === 'number' ? parsed.longitude : null,
-    };
+    return toUserLocation(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -56,20 +48,23 @@ export function getPersistedNewsLocationContext() {
   const selectedLocation = toValidLocationMode(readStorage(LOCATION_STORAGE_KEY), LOCATION_OPTIONS);
   const details = parseStoredLocation(readStorage(USER_LOCATION_STORAGE_KEY))
     || parseStoredLocation(readStorage(LAST_RESOLVED_LOCATION_STORAGE_KEY))
-    || { area: '', country: '', latitude: null, longitude: null };
+    || { area: '', region: null, country: '', countryCode: null, latitude: null, longitude: null };
 
   const request = {
     location: selectedLocation,
     latitude: selectedLocation === 'Local' ? details.latitude : null,
     longitude: selectedLocation === 'Local' ? details.longitude : null,
     country: details.country,
+    countryCode: details.countryCode,
     area: details.area,
+    region: details.region,
   };
 
   const key = [
     request.location,
     request.country,
     request.area,
+    request.region || '',
     String(request.latitude ?? ''),
     String(request.longitude ?? ''),
   ].join('|');

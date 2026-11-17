@@ -77,6 +77,7 @@ export function useGlobalSearch(query, locationContext) {
       query: debouncedQuery,
       location: locationContext.selectedLocation, // safe — locationContext is confirmed non-null above
       area: locationContext.area,
+      region: locationContext.region,
       country: locationContext.country,
       signal: controller.signal,
     })

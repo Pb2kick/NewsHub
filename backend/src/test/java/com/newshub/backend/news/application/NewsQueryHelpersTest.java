@@ -70,6 +70,35 @@ class NewsQueryHelpersTest {
     }
 
     @Test
+    void localQueriesAddTheProvinceWhenKnown() {
+        List<String> queries = ExternalNewsService.queriesForLocation("Palo, Leyte", "Philippines", "Palo", "Leyte");
+        assertTrue(queries.contains("Palo Leyte news"));
+        assertTrue(queries.stream().noneMatch(q -> q.equals("Palo news")), "bare 'Palo news' returns Palo Alto");
+    }
+
+    @Test
+    void bingUrlCarriesTheCountryMarketOnlyWhenValid() {
+        assertTrue(ExternalNewsService.buildBingNewsRssUrl("x", "ph").endsWith("&cc=PH"));
+        assertTrue(!ExternalNewsService.buildBingNewsRssUrl("x", null).contains("cc="));
+        assertTrue(!ExternalNewsService.buildBingNewsRssUrl("x", "PHL").contains("cc="));
+    }
+
+    @Test
+    void localScopeKeyCombinesAreaAndRegion() {
+        assertEquals("Naga, Cebu", NewsService.localScopeKey("Naga", "Cebu"));
+        assertEquals("Manila", NewsService.localScopeKey("Manila", null));
+        assertEquals("Singapore", NewsService.localScopeKey("Singapore", "singapore"));
+        assertEquals("", NewsService.localScopeKey(" ", "Cebu"));
+    }
+
+    @Test
+    void localRelevanceUsesTheBareCityName() {
+        ExternalNewsService.RssItem palo = rss("Palo eyes stronger tourism presence", "Leyte");
+        assertEquals(List.of(palo),
+                ExternalNewsService.filterForScope(List.of(palo), "Palo, Leyte", "Philippines", "Palo"));
+    }
+
+    @Test
     void areaTokenDropsAdministrativePrefixes() {
         assertEquals("manila", ExternalNewsService.areaMatchToken("City of Manila"));
         assertEquals("quezon city", ExternalNewsService.areaMatchToken("Quezon City"));

@@ -19,15 +19,19 @@ import {
   USER_LOCATION_CURRENT,
   USER_LOCATION_STORAGE_KEY,
 } from '../../shared/constants/locations';
-import { resolveLocationDetails, toValidLocationMode } from '../../shared/utils/locationResolver';
+import { toValidLocationMode } from '../../shared/utils/locationResolver';
 import { parseStoredLocation } from '../../shared/utils/newsLocationContext';
+import { reverseGeocode, toUserLocation } from '../../shared/services/locationApi';
 
 const PAGE_SIZE = 4;
 const FEED_CACHE_TTL_MS = 300000;
 
 /** Blank details mean "not resolved yet"; the backend returns nothing for a blank country. */
 function unresolvedLocation() {
-  return { area: '', country: '', label: APPROXIMATE_LOCAL_LABEL, latitude: null, longitude: null };
+  return {
+    area: '', region: null, country: '', countryCode: null,
+    label: APPROXIMATE_LOCAL_LABEL, latitude: null, longitude: null,
+  };
 }
 
 function readStorage(key) {
@@ -60,22 +64,34 @@ function getLastResolvedLocation() {
   return parseStoredLocation(readStorage(LAST_RESOLVED_LOCATION_STORAGE_KEY));
 }
 
-/** Looks up an approximate location from the visitor's IP address. */
+/**
+ * Looks up an approximate location from the visitor's IP address, then maps
+ * its coordinates to the city level through the backend. IP databases often
+ * name a neighbourhood or barangay ("Pawing") that has almost no news coverage;
+ * the reverse lookup turns that into its municipality ("Palo, Leyte").
+ */
 async function lookupIpLocation(signal) {
   try {
     const res = await fetch('https://ipapi.co/json/', { signal });
     if (!res.ok) return null;
     const ip = await res.json();
-    const area = (ip.city || ip.region || '').trim();
-    const country = (ip.country_name || '').trim();
-    if (!area || !country) return null;
-    return {
-      area,
-      country,
-      label: `${area}, ${country}`,
-      latitude: typeof ip.latitude === 'number' ? ip.latitude : null,
-      longitude: typeof ip.longitude === 'number' ? ip.longitude : null,
-    };
+    const latitude = typeof ip.latitude === 'number' ? ip.latitude : null;
+    const longitude = typeof ip.longitude === 'number' ? ip.longitude : null;
+
+    const cityLevel = latitude !== null && longitude !== null
+      ? await reverseGeocode({ latitude, longitude, signal })
+      : null;
+    if (cityLevel) return cityLevel;
+
+    // Backend unreachable: fall back to the IP service's own names.
+    return toUserLocation({
+      area: (ip.city || ip.region || '').trim(),
+      region: ip.city && ip.region && ip.region !== ip.city ? ip.region : null,
+      country: (ip.country_name || '').trim(),
+      countryCode: ip.country_code || null,
+      latitude,
+      longitude,
+    });
   } catch {
     return null;
   }
@@ -91,11 +107,7 @@ function lookupGpsLocation() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        try {
-          resolve(await resolveLocationDetails(latitude, longitude, new AbortController().signal));
-        } catch {
-          resolve(null);
-        }
+        resolve(await reverseGeocode({ latitude, longitude }));
       },
       () => resolve(null),
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
@@ -106,7 +118,13 @@ function lookupGpsLocation() {
 function sameLocation(a, b) {
   return Boolean(a && b)
     && a.area.toLowerCase() === b.area.toLowerCase()
+    && (a.region || '').toLowerCase() === (b.region || '').toLowerCase()
     && a.country.toLowerCase() === b.country.toLowerCase();
+}
+
+/** Locations saved before Phase 2 lack countryCode (and region); they get re-normalized once. */
+function isLegacyLocation(details) {
+  return Boolean(details?.area && details?.country && !details.countryCode);
 }
 
 /**
@@ -205,13 +223,31 @@ export function useLocationNews({ loadNews = true } = {}) {
     return () => abortController.abort();
   }, [isUsingCurrentLocation, detectRequest]);
 
+  // One-time upgrade of a manually picked location saved before regions and
+  // country codes existed (detected locations are refreshed by detection anyway).
+  useEffect(() => {
+    if (isUsingCurrentLocation || !isLegacyLocation(userLocationDetails)) return undefined;
+    const { latitude, longitude } = userLocationDetails;
+    if (latitude === null || longitude === null) return undefined;
+
+    const abortController = new AbortController();
+    reverseGeocode({ latitude, longitude, signal: abortController.signal }).then((normalized) => {
+      if (!normalized || abortController.signal.aborted) return;
+      setUserLocationDetails(normalized);
+      writeStorage(USER_LOCATION_STORAGE_KEY, JSON.stringify(normalized));
+    });
+    return () => abortController.abort();
+  }, [isUsingCurrentLocation, userLocationDetails]);
+
   const locationRequest = useMemo(
     () => ({
       location: selectedLocation,
       latitude: selectedLocation === 'Local' ? userLocationDetails.latitude : null,
       longitude: selectedLocation === 'Local' ? userLocationDetails.longitude : null,
       country: userLocationDetails.country,
+      countryCode: userLocationDetails.countryCode,
       area: userLocationDetails.area,
+      region: userLocationDetails.region,
     }),
     [selectedLocation, userLocationDetails]
   );
@@ -219,7 +255,12 @@ export function useLocationNews({ loadNews = true } = {}) {
   useEffect(() => {
     if (!loadNews) return undefined;
     const abortController = new AbortController();
-    const feedKey = [locationRequest.location, locationRequest.country, locationRequest.area].join('|');
+    const feedKey = [
+      locationRequest.location,
+      locationRequest.country,
+      locationRequest.area,
+      locationRequest.region || '',
+    ].join('|');
     feedKeyRef.current = feedKey;
     if (loadMoreAbortRef.current) loadMoreAbortRef.current.abort();
 
@@ -345,7 +386,9 @@ export function useLocationNews({ loadNews = true } = {}) {
     userLocationDisplayLabel: userLocationDetails.label,
     isUsingCurrentLocation,
     area: userLocationDetails.area,
+    region: userLocationDetails.region,
     country: userLocationDetails.country,
+    countryCode: userLocationDetails.countryCode,
     isLocationPending,
     needsManualLocation,
     hasMore,

@@ -45,10 +45,12 @@ public class NewsController {
             @RequestParam(required = false) Double lng,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String area,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String countryCode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "4") int size
     ) {
-        return newsService.getNews(location, lat, lng, country, area, page, size);
+        return newsService.getNews(location, lat, lng, country, area, region, countryCode, page, size);
     }
 
     /**
@@ -73,12 +75,13 @@ public class NewsController {
             @RequestParam(required = false, defaultValue = "") String q,
             @RequestParam(required = false) String location,
             @RequestParam(required = false) String area,
+            @RequestParam(required = false) String region,
             @RequestParam(required = false) String country
     ) {
         if (q == null || q.isBlank()) {
             return List.of();
         }
-        return newsService.searchNews(q, location, area, country);
+        return newsService.searchNews(q, location, area, region, country);
     }
 
     /**
