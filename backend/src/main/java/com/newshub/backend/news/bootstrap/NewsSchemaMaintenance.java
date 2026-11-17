@@ -22,8 +22,9 @@ import java.util.List;
  *       PostgreSQL will not use it.</li>
  *   <li>Fills in the stored category for rows saved before the column existed,
  *       so database-side category filtering covers old articles too.</li>
+ *   <li>Deletes the six made-up demo articles an old startup seeder inserted.</li>
  * </ul>
- * Both steps are idempotent and failures are logged, never fatal.
+ * All steps are idempotent and failures are logged, never fatal.
  */
 @Component
 public class NewsSchemaMaintenance implements ApplicationRunner {
@@ -32,6 +33,21 @@ public class NewsSchemaMaintenance implements ApplicationRunner {
             CREATE INDEX IF NOT EXISTS news_fulltext_idx ON news USING GIN (
                 to_tsvector('english', coalesce(title, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(content, ''))
             )""";
+    /**
+     * Titles of the demo articles the removed NewsDataInitializer used to insert.
+     * A row is deleted only when its title matches exactly and it has no source
+     * link and no author, which is how the seeder saved them; real articles
+     * always have a source link.
+     */
+    public static final List<String> DEMO_ARTICLE_TITLES = List.of(
+            "National Election Commission Announces Updated 2026 Voting Timeline",
+            "Government Expands SME Support Program for Urban Communities",
+            "Digital ID Rollout Reaches 85% of Eligible Citizens",
+            "New Cybersecurity Framework Introduced for Election Infrastructure",
+            "Regional Transit Upgrade Targets Commute Delays",
+            "Global Summit on Climate Action Reaches Historic Agreement");
+    private static final String DEMO_ARTICLES_CLEANUP_SQL =
+            "DELETE FROM news WHERE source_url IS NULL AND user_id IS NULL AND title IN (?, ?, ?, ?, ?, ?)";
     private static final int BATCH_SIZE = 200;
     private static final Logger LOG = LoggerFactory.getLogger(NewsSchemaMaintenance.class);
 
@@ -46,7 +62,26 @@ public class NewsSchemaMaintenance implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         ensureFullTextIndex();
+        removeDemoArticles();
         backfillCategories();
+    }
+
+    /**
+     * Deletes the leftover demo articles. Does nothing once they are gone.
+     *
+     * @return number of rows deleted
+     */
+    public int removeDemoArticles() {
+        try {
+            int deleted = jdbcTemplate.update(DEMO_ARTICLES_CLEANUP_SQL, DEMO_ARTICLE_TITLES.toArray());
+            if (deleted > 0) {
+                LOG.info("Removed {} demo articles", deleted);
+            }
+            return deleted;
+        } catch (Exception failure) {
+            LOG.warn("Could not remove demo articles: {}", failure.getMessage());
+            return 0;
+        }
     }
 
     /** Creates the full-text index if it is missing. */
