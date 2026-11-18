@@ -1,6 +1,20 @@
 const NEWS_API_BASE_URL = process.env.REACT_APP_NEWS_API_BASE_URL || 'http://localhost:8080';
 
 /**
+ * Sends one cheap request so a sleeping free-tier backend starts waking up
+ * right away (it can take a minute or more), while the visitor is still on the
+ * sign-in page, instead of when the first news or location request is made.
+ * Fire and forget: failures are ignored.
+ */
+export function wakeBackend() {
+  try {
+    fetch(`${NEWS_API_BASE_URL}/api/health`, { cache: 'no-store' }).catch(() => {});
+  } catch {
+    // fetch unavailable (very old browser); the first real request wakes it instead.
+  }
+}
+
+/**
  * Upgrades common CDN image size parameters so the proxy fetches the
  * highest available resolution instead of the thumbnail the news API returns.
  *
