@@ -1,8 +1,25 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Loader2 } from 'lucide-react';
 import { LOCATION_OPTIONS } from '../../shared/constants/locations';
 import NewsImage from './NewsImage';
+
+/** Wait after which the first load counts as slow (usually the free-tier server waking up). */
+const SLOW_WAIT_MS = 8000;
+
+/** True once `active` has stayed true for `delayMs`; resets as soon as it turns false. */
+function useLongWait(active, delayMs) {
+  const [isLong, setIsLong] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setIsLong(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setIsLong(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [active, delayMs]);
+  return isLong;
+}
 
 /**
  * Renders location picker, secondary article cards, and progressive See More controls.
@@ -36,6 +53,8 @@ export default function HomeNewsGrid(props) {
     isLoadingMore = false,
     loadMore,
   } = props;
+
+  const isWaitingLong = useLongWait(isLocationPending || showInitialNewsLoading, SLOW_WAIT_MS);
 
   /** Skeleton card — identical class structure used for both initial load and See More. */
   function SkeletonCard({ id }) {
@@ -81,6 +100,13 @@ export default function HomeNewsGrid(props) {
           </select>
         </div>
       </div>
+
+      {isWaitingLong && (
+        <p role="status" className="mb-4 flex items-center gap-2 rounded-lg border border-blue-100 dark:border-slate-700 bg-blue-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+          <Loader2 className="w-4 h-4 shrink-0 animate-spin text-blue-600" />
+          The news server is starting up. After a quiet period this can take up to a minute; your news will appear on its own.
+        </p>
+      )}
 
       {/* Article grid — shows skeletons on initial load, detecting spinner, or articles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-8">

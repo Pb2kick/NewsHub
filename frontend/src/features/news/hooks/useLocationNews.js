@@ -21,7 +21,8 @@ import {
 } from '../../shared/constants/locations';
 import { toValidLocationMode } from '../../shared/utils/locationResolver';
 import { parseStoredLocation } from '../../shared/utils/newsLocationContext';
-import { reverseGeocode, toUserLocation } from '../../shared/services/locationApi';
+import { reverseGeocode } from '../../shared/services/locationApi';
+import { lookupGpsLocation, lookupIpLocation } from '../../shared/services/deviceLocation';
 
 // Home shows the first article as the featured story above a two-column grid.
 // Loading 5 first (1 featured + 4 cards) and then 4 per "See more" keeps every
@@ -66,57 +67,6 @@ function getStoredManualLocation() {
 /** Last location that GPS or IP detection resolved successfully. */
 function getLastResolvedLocation() {
   return parseStoredLocation(readStorage(LAST_RESOLVED_LOCATION_STORAGE_KEY));
-}
-
-/**
- * Looks up an approximate location from the visitor's IP address, then maps
- * its coordinates to the city level through the backend. IP databases often
- * name a neighbourhood or barangay ("Pawing") that has almost no news coverage;
- * the reverse lookup turns that into its municipality ("Palo, Leyte").
- */
-async function lookupIpLocation(signal) {
-  try {
-    const res = await fetch('https://ipapi.co/json/', { signal });
-    if (!res.ok) return null;
-    const ip = await res.json();
-    const latitude = typeof ip.latitude === 'number' ? ip.latitude : null;
-    const longitude = typeof ip.longitude === 'number' ? ip.longitude : null;
-
-    const cityLevel = latitude !== null && longitude !== null
-      ? await reverseGeocode({ latitude, longitude, signal })
-      : null;
-    if (cityLevel) return cityLevel;
-
-    // Backend unreachable: fall back to the IP service's own names.
-    return toUserLocation({
-      area: (ip.city || ip.region || '').trim(),
-      region: ip.city && ip.region && ip.region !== ip.city ? ip.region : null,
-      country: (ip.country_name || '').trim(),
-      countryCode: ip.country_code || null,
-      latitude,
-      longitude,
-    });
-  } catch {
-    return null;
-  }
-}
-
-/** Reads browser GPS and reverse geocodes it; resolves null on denial, timeout or geocode failure. */
-function lookupGpsLocation() {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude, longitude } = position.coords;
-        resolve(await reverseGeocode({ latitude, longitude }));
-      },
-      () => resolve(null),
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
-    );
-  });
 }
 
 function sameLocation(a, b) {
